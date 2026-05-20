@@ -1,0 +1,273 @@
+:root {
+  color: #d7dce2;
+  background: #1f2329;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+button {
+  border: 0;
+  color: inherit;
+  font: inherit;
+  background: transparent;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 52px 284px minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  background: #1f2329;
+}
+
+.activity-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 0;
+  background: #252a31;
+  border-right: 1px solid #15181d;
+}
+
+.activity {
+  position: relative;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  color: #9aa3ad;
+  cursor: pointer;
+}
+
+.activity:hover,
+.activity.active {
+  color: #f2f5f8;
+}
+
+.activity.active::before {
+  position: absolute;
+  left: 0;
+  width: 3px;
+  height: 28px;
+  content: "";
+  background: #4fb3ff;
+}
+
+.activity.bottom {
+  margin-top: auto;
+}
+
+.sidebar {
+  min-width: 0;
+  background: #20242b;
+  border-right: 1px solid #15181d;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 42px;
+  padding: 0 12px;
+  color: #c3cad3;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sidebar-header button,
+.toolbar button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  color: #aab3bd;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.sidebar-header button:hover,
+.toolbar button:hover {
+  color: #f8fafc;
+  background: #343b45;
+}
+
+.workspace-block {
+  padding: 4px 8px;
+}
+
+.workspace-title {
+  padding: 8px 5px;
+  color: #8b96a3;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.file-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 10px;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 30px;
+  padding: 0 7px;
+  color: #cfd6de;
+  text-align: left;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.file-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-row.selected {
+  background: #303741;
+}
+
+.dirty-dot {
+  width: 7px;
+  height: 7px;
+  background: #ffcc66;
+  border-radius: 999px;
+}
+
+.workbench {
+  display: grid;
+  grid-template-rows: 42px minmax(0, 1fr) 150px 24px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.titlebar {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  background: #242931;
+  border-bottom: 1px solid #15181d;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 180px;
+  max-width: 320px;
+  padding: 0 13px;
+  color: #cdd4dc;
+  font-size: 13px;
+  border-right: 1px solid #15181d;
+}
+
+.active-tab {
+  background: #1f2329;
+}
+
+.tab span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unsaved {
+  color: #ffcc66;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+}
+
+.editor-area {
+  min-height: 0;
+}
+
+.panel {
+  min-height: 0;
+  background: #1d2127;
+  border-top: 1px solid #15181d;
+}
+
+.panel-tabs {
+  display: flex;
+  height: 34px;
+  border-bottom: 1px solid #15181d;
+}
+
+.panel-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 14px;
+  color: #aab3bd;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.active-panel {
+  color: #f2f5f8;
+  border-bottom: 1px solid #4fb3ff;
+}
+
+.terminal-output {
+  padding: 14px;
+  color: #d1d8df;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 13px;
+}
+
+.prompt {
+  color: #6ad37a;
+}
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+  padding: 0 10px;
+  color: #ffffff;
+  background: #25689c;
+  font-size: 12px;
+}
+
+.statusbar span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+  .app-shell {
+    grid-template-columns: 48px minmax(190px, 230px) minmax(0, 1fr);
+  }
+
+  .workbench {
+    grid-template-rows: 42px minmax(0, 1fr) 118px 24px;
+  }
+
+  .statusbar {
+    gap: 10px;
+  }
+}
