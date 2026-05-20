@@ -2,14 +2,16 @@
   "name": "skript-tool",
   "version": "0.1.0",
   "private": true,
+  "author": "RaahooWorld",
   "description": "A VS Code-style desktop IDE for Minecraft Skript developers.",
-  "main": "dist-electron/main.js",
+  "main": "dist-electron/main.cjs",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && node scripts/start-electron.mjs\"",
     "build": "tsc && vite build && tsc -p electron/tsconfig.json",
     "preview": "vite preview --host 127.0.0.1",
-    "electron": "electron ."
+    "electron": "node scripts/start-electron.mjs",
+    "dist": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -25,9 +27,31 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.0",
     "cross-env": "^7.0.3",
-    "electron": "^42.2.0",
+    "electron": "^39.8.5",
+    "electron-builder": "^26.8.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.3",
-    "wait-on": "^8.0.1"
+    "wait-on": "^8.0.5"
+  },
+  "build": {
+    "appId": "com.raahooworld.skripttool",
+    "productName": "Skript Tool",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false,
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

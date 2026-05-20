@@ -1,23 +1,19 @@
-import electron from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const { app, BrowserWindow, dialog, ipcMain } = electron;
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1440,
-    height: 920,
-    minWidth: 960,
-    minHeight: 640,
+    width: 1500,
+    height: 940,
+    minWidth: 1100,
+    minHeight: 700,
     title: "Skript Tool",
     backgroundColor: "#1f2329",
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false
     }
