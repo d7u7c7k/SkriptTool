@@ -6,6 +6,20 @@ type SkriptFile = {
   content: string;
 };
 
+type MinecraftCatalogItemDto = {
+  id: string;
+  label: string;
+  labelKo: string;
+  texture: string;
+};
+
+type MinecraftAssetsDto = {
+  version: string;
+  minecraftPath: string;
+  itemCount: number;
+  items: MinecraftCatalogItemDto[];
+};
+
 interface FileSystemFileHandle {
   name: string;
   getFile: () => Promise<File>;
@@ -35,5 +49,7 @@ interface Window {
   skriptApi?: {
     openSkript: () => Promise<SkriptFile | null>;
     saveSkript: (payload: { path?: string; content: string }) => Promise<{ path: string; name: string } | null>;
+    getMinecraftHome?: () => Promise<string>;
+    prepareMinecraftAssets?: (version: string) => Promise<MinecraftAssetsDto>;
   };
 }
