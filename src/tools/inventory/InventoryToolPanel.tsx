@@ -8,6 +8,8 @@ import type { InventoryBuilder } from "./types";
 export type { InventoryBuilder };
 export { defaultInventoryBuilder, generateInventoryLines, inventoryLayouts, itemCatalog } from "./generate";
 
+const MAX_VISIBLE = 240;
+
 type InventoryToolPanelProps = {
   builder: InventoryBuilder;
   selectedSlots: number[];
@@ -20,7 +22,17 @@ type InventoryToolPanelProps = {
   onApply: () => void;
 };
 
-type UiCatalogItem = CatalogItem & { labelKo?: string };
+type UiCatalogItem = CatalogItem & { labelKo?: string; dataUrl?: string };
+
+type LoadState =
+  | { kind: "loading"; message: string }
+  | { kind: "local"; version: string; count: number }
+  | { kind: "fallback"; message: string };
+
+/** Ignore spaces so "황금사과" matches "황금 사과". */
+function normalize(value: string) {
+  return value.toLowerCase().replace(/\s+/g, "");
+}
 
 export function InventoryToolPanel({
   builder,
@@ -36,8 +48,7 @@ export function InventoryToolPanel({
   const packInputRef = useRef<HTMLInputElement>(null);
   const [pack, setPack] = useState<LoadedResourcePack | null>(null);
   const [catalog, setCatalog] = useState<UiCatalogItem[]>(fallbackCatalog);
-  const [localVersion, setLocalVersion] = useState<string | null>(null);
-  const [loadState, setLoadState] = useState("로컬 .minecraft 텍스처 준비 중…");
+  const [loadState, setLoadState] = useState<LoadState>({ kind: "loading", message: ".minecraft 에셋 확인 중…" });
   const [filter, setFilter] = useState("");
 
   const inventoryLayout = inventoryLayouts[builder.inventoryType] ?? inventoryLayouts.chest;
@@ -47,60 +58,58 @@ export function InventoryToolPanel({
 
   useEffect(() => {
     let cancelled = false;
+    const prepare = window.skriptApi?.prepareMinecraftAssets;
 
-    async function loadLocal() {
-      if (!window.skriptApi?.prepareMinecraftAssets) {
-        setLoadState("Electron API 없음 · 기본 카탈로그 사용");
-        setCatalog([...fallbackCatalog].sort((a, b) => a.id.localeCompare(b.id, "en")));
-        return;
-      }
-
-      try {
-        setLoadState(`.minecraft에서 ${minecraftVersion} 에셋 로딩…`);
-        const assets = await window.skriptApi.prepareMinecraftAssets(minecraftVersion);
-        if (cancelled) {
-          return;
-        }
-        setLocalVersion(assets.version);
-        setCatalog(
-          assets.items.map((item) => ({
-            id: item.id,
-            label: item.label,
-            labelKo: item.labelKo,
-            texture: item.texture
-          }))
-        );
-        setLoadState(`.minecraft ${assets.version} · 아이템 ${assets.itemCount}개`);
-        onStatus?.(`Loaded ${assets.itemCount} items from ${assets.minecraftPath}`);
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-        setLocalVersion(null);
-        setCatalog([...fallbackCatalog].sort((a, b) => a.id.localeCompare(b.id, "en")));
-        setLoadState(`로컬 로드 실패 · 기본 목록 사용 (${error instanceof Error ? error.message : "error"})`);
-      }
+    if (!prepare) {
+      setLoadState({ kind: "fallback", message: "Electron에서 실행해야 .minecraft 텍스처를 쓸 수 있습니다." });
+      return;
     }
 
-    void loadLocal();
+    setLoadState({ kind: "loading", message: `.minecraft에서 ${minecraftVersion} 에셋 로딩…` });
+
+    prepare(minecraftVersion)
+      .then((assets) => {
+        if (cancelled) {
+          return;
+        }
+        setCatalog(assets.items);
+        setLoadState({ kind: "local", version: assets.version, count: assets.itemCount });
+        onStatus?.(`Loaded ${assets.itemCount} items from .minecraft ${assets.version}`);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        setCatalog(fallbackCatalog);
+        setLoadState({ kind: "fallback", message });
+        onStatus?.(`.minecraft 로드 실패: ${message}`);
+      });
+
     return () => {
       cancelled = true;
     };
   }, [minecraftVersion, onStatus]);
 
-  const visibleItems = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    const sorted = [...catalog].sort((a, b) => a.id.localeCompare(b.id, "en", { sensitivity: "base" }));
-    if (!q) {
-      return sorted;
+  const sortedCatalog = useMemo(
+    () => [...catalog].sort((a, b) => a.id.localeCompare(b.id, "en", { sensitivity: "base" })),
+    [catalog]
+  );
+
+  const matches = useMemo(() => {
+    const query = normalize(filter.trim());
+    if (!query) {
+      return sortedCatalog;
     }
-    return sorted.filter((item) => {
-      const en = item.label.toLowerCase();
-      const ko = (item.labelKo ?? "").toLowerCase();
-      const id = item.id.toLowerCase();
-      return id.includes(q) || en.includes(q) || ko.includes(q);
-    });
-  }, [catalog, filter]);
+    return sortedCatalog.filter(
+      (item) =>
+        normalize(item.id).includes(query) ||
+        normalize(item.label).includes(query) ||
+        normalize(item.labelKo ?? "").includes(query)
+    );
+  }, [sortedCatalog, filter]);
+
+  const visibleItems = matches.slice(0, MAX_VISIBLE);
 
   function toggleSlot(slot: number) {
     onSelectedSlotsChange(
@@ -149,29 +158,36 @@ export function InventoryToolPanel({
       const loaded = await loadResourcePackFromFile(file);
       revokeResourcePack(pack);
       setPack(loaded);
-      setLoadState(`리소스팩 ${loaded.name} · ${loaded.textures.size} textures (우선)`);
-      onStatus?.(`Loaded resource pack: ${loaded.name}`);
+      onStatus?.(`Loaded resource pack: ${loaded.name} (${loaded.textures.size} textures)`);
     } catch (error) {
-      onStatus?.(`Failed to load resource pack: ${error instanceof Error ? error.message : "unknown error"}`);
+      onStatus?.(`리소스팩 로드 실패: ${error instanceof Error ? error.message : "unknown error"}`);
     }
   }
 
   function clearPack() {
     revokeResourcePack(pack);
     setPack(null);
-    setLoadState(localVersion ? `.minecraft ${localVersion} · 아이템 ${catalog.length}개` : "바닐라");
     if (packInputRef.current) {
       packInputRef.current.value = "";
     }
   }
 
-  function textureFor(itemId?: string) {
-    return catalog.find((item) => item.id === itemId)?.texture ?? `item/${(itemId ?? "barrier").replace(/\s+/g, "_")}`;
+  function itemFor(itemId?: string) {
+    return catalog.find((item) => item.id === itemId);
   }
+
+  const sourceLabel =
+    loadState.kind === "local"
+      ? `.minecraft ${loadState.version} · 아이템 ${loadState.count}개`
+      : loadState.kind === "loading"
+        ? loadState.message
+        : `기본 목록 사용 · ${loadState.message}`;
 
   return (
     <>
       <div className="inventory-pack-bar">
+        <div className={`pack-status ${loadState.kind === "fallback" ? "warn" : ""}`}>{sourceLabel}</div>
+        {pack && <div className="pack-status">리소스팩 {pack.name} · {pack.textures.size} textures (우선 적용)</div>}
         <input
           ref={packInputRef}
           className="hidden-file-input"
@@ -181,16 +197,16 @@ export function InventoryToolPanel({
             void handlePackFile(event.target.files?.[0]);
           }}
         />
-        <button type="button" className="wide-command" onClick={() => packInputRef.current?.click()}>
-          리소스팩 ZIP 불러오기 (선택)
-        </button>
-        {pack && (
-          <button type="button" className="wide-command secondary" onClick={clearPack}>
-            리소스팩 해제
+        <div className="pack-buttons">
+          <button type="button" className="wide-command" onClick={() => packInputRef.current?.click()}>
+            리소스팩 ZIP 불러오기
           </button>
-        )}
-        <div className="pack-status">{loadState}</div>
-        <div className="pack-hint">기본은 이 PC의 .minecraft 버전 jar 텍스처입니다. 검색은 영어/한글 모두 가능합니다.</div>
+          {pack && (
+            <button type="button" className="wide-command secondary" onClick={clearPack}>
+              해제
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="inventory-controls">
@@ -234,13 +250,14 @@ export function InventoryToolPanel({
           }}
         >
           {Array.from({ length: inventorySlotCount }, (_, slot) => {
-            const item = builder.slots[slot];
+            const itemId = builder.slots[slot];
+            const item = itemFor(itemId);
             const selected = selectedSlots.includes(slot);
             return (
               <button
                 className={`minecraft-slot ${selected ? "selected" : ""}`}
                 key={slot}
-                title={`Slot ${slot}${item ? `: ${item}` : ""}`}
+                title={`Slot ${slot}${itemId ? `: ${itemId}` : ""}`}
                 onClick={() => {
                   if (selectedItem) {
                     setSlotItem(slot, selectedItem);
@@ -253,11 +270,11 @@ export function InventoryToolPanel({
                   clearSlot(slot);
                 }}
                 onDragStart={(event) => {
-                  if (!item) {
+                  if (!itemId) {
                     event.preventDefault();
                     return;
                   }
-                  event.dataTransfer.setData("application/x-skript-item", item);
+                  event.dataTransfer.setData("application/x-skript-item", itemId);
                   event.dataTransfer.setData("application/x-skript-slot", String(slot));
                   event.dataTransfer.effectAllowed = "move";
                 }}
@@ -282,15 +299,16 @@ export function InventoryToolPanel({
                     setSlotItem(slot, droppedItem);
                   }
                 }}
-                draggable={Boolean(item)}
+                draggable={Boolean(itemId)}
               >
-                {item && (
+                {itemId && (
                   <ItemIcon
-                    texture={textureFor(item)}
-                    localVersion={localVersion}
+                    texture={item?.texture ?? `item/${itemId.replace(/\s+/g, "_")}`}
+                    dataUrl={item?.dataUrl}
                     minecraftVersion={minecraftVersion}
                     pack={pack}
-                    label={item}
+                    label={itemId}
+                    className="slot-icon"
                   />
                 )}
               </button>
@@ -310,50 +328,56 @@ export function InventoryToolPanel({
         </div>
       </div>
 
-      <div className="selected-summary">
-        {visibleItems.length} / {catalog.length} items · {selectedSlots.length} slot(s)
-      </div>
-
       <input
         className="item-filter"
         value={filter}
         onChange={(event) => setFilter(event.target.value)}
-        placeholder="검색 (영어 / 한글) 예: 다이아, diamond, 사과…"
+        placeholder="아이템 검색 (한글/영어): 다이아몬드, golden apple…"
       />
 
+      <div className="selected-summary">
+        {matches.length}개 검색됨
+        {matches.length > visibleItems.length ? ` · ${visibleItems.length}개 표시` : ""} · 선택한 아이템:{" "}
+        {selectedItem || "없음"}
+      </div>
+
       <div className="item-palette">
-        {visibleItems.map((item) => (
-          <button
-            className={`palette-item ${selectedItem === item.id ? "active" : ""}`}
-            key={item.id}
-            onClick={() => onSelectedItemChange(item.id)}
-            onDragStart={(event) => {
-              event.dataTransfer.setData("application/x-skript-item", item.id);
-              event.dataTransfer.effectAllowed = "copy";
-            }}
-            title={item.labelKo ? `${item.label} / ${item.labelKo}` : item.label}
-            draggable
-          >
-            <ItemIcon
-              texture={item.texture}
-              localVersion={localVersion}
-              minecraftVersion={minecraftVersion}
-              pack={pack}
-              label={item.label}
-            />
-            <span className="palette-item-text">
-              <strong>{item.id}</strong>
-              <small>{item.labelKo || item.label}</small>
-            </span>
-          </button>
-        ))}
+        {visibleItems.length === 0 ? (
+          <div className="empty-note">검색 결과가 없습니다.</div>
+        ) : (
+          visibleItems.map((item) => (
+            <button
+              className={`palette-item ${selectedItem === item.id ? "active" : ""}`}
+              key={item.id}
+              onClick={() => onSelectedItemChange(item.id)}
+              onDragStart={(event) => {
+                event.dataTransfer.setData("application/x-skript-item", item.id);
+                event.dataTransfer.effectAllowed = "copy";
+              }}
+              title={item.labelKo ? `${item.id} · ${item.labelKo}` : item.id}
+              draggable
+            >
+              <ItemIcon
+                texture={item.texture}
+                dataUrl={item.dataUrl}
+                minecraftVersion={minecraftVersion}
+                pack={pack}
+                label={item.label}
+              />
+              <span className="palette-item-text">
+                <strong>{item.id}</strong>
+                <small>{item.labelKo || item.label}</small>
+              </span>
+            </button>
+          ))
+        )}
       </div>
 
       <div className="inventory-actions">
         <button className="apply-button" onClick={onApply}>
-          Apply to code
+          코드에 적용
         </button>
-        <span className="drag-hint">목록은 A–Z(id) 정렬입니다. 슬롯 클릭으로 배치, 우클릭으로 비우기.</span>
+        <span className="drag-hint">목록은 A–Z 정렬입니다. 아이템을 고른 뒤 슬롯 클릭으로 배치, 우클릭으로 비우기.</span>
       </div>
     </>
   );

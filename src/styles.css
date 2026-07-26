@@ -565,6 +565,12 @@ textarea:focus {
   flex-shrink: 0;
 }
 
+.item-icon.slot-icon,
+.minecraft-slot .item-icon-fallback {
+  width: 24px;
+  height: 24px;
+}
+
 .item-icon-fallback {
   display: grid;
   place-items: center;
@@ -853,12 +859,21 @@ textarea:focus {
 .pack-status {
   color: #c3cad3;
   font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
-.pack-hint {
-  color: #8f9aa6;
-  font-size: 11px;
-  line-height: 1.35;
+.pack-status.warn {
+  color: #ffcf7a;
+}
+
+.pack-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.pack-buttons .wide-command {
+  flex: 1;
 }
 
 .item-filter {

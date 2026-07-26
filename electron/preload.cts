@@ -9,6 +9,6 @@ contextBridge.exposeInMainWorld("skriptApi", {
       version: string;
       minecraftPath: string;
       itemCount: number;
-      items: Array<{ id: string; label: string; labelKo: string; texture: string }>;
+      items: Array<{ id: string; label: string; labelKo: string; texture: string; dataUrl: string }>;
     }>
 });

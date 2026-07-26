@@ -1,29 +1,20 @@
 import { useEffect, useState } from "react";
-import { resolveTextureUrl, type LoadedResourcePack } from "./resourcePack";
+import { packTextureUrl, remoteTextureUrl, type LoadedResourcePack } from "./resourcePack";
 
 type ItemIconProps = {
   texture: string;
-  /** Resolved local jar version used for mctex:// */
-  localVersion?: string | null;
+  /** Inline PNG from the local .minecraft jar */
+  dataUrl?: string;
   minecraftVersion: string;
   pack: LoadedResourcePack | null;
   label?: string;
   className?: string;
 };
 
-function localTextureSrc(localVersion: string, texture: string) {
-  const key = texture.replace(/^\/+/, "").replace(/\.png$/i, "");
-  return `mctex://local/${key}.png?v=${encodeURIComponent(localVersion)}`;
-}
-
-export function ItemIcon({ texture, localVersion, minecraftVersion, pack, label, className }: ItemIconProps) {
+export function ItemIcon({ texture, dataUrl, minecraftVersion, pack, label, className }: ItemIconProps) {
   const [failed, setFailed] = useState(false);
 
-  const src = pack
-    ? resolveTextureUrl(texture, minecraftVersion, pack)
-    : localVersion
-      ? localTextureSrc(localVersion, texture)
-      : resolveTextureUrl(texture, minecraftVersion, null);
+  const src = packTextureUrl(texture, pack) ?? dataUrl ?? remoteTextureUrl(texture, minecraftVersion);
 
   useEffect(() => {
     setFailed(false);

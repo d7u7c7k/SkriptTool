@@ -11,6 +11,7 @@ type MinecraftCatalogItemDto = {
   label: string;
   labelKo: string;
   texture: string;
+  dataUrl: string;
 };
 
 type MinecraftAssetsDto = {

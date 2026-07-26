@@ -1,22 +1,7 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
-import { getMinecraftHomePath, prepareMinecraftAssets, resolveTextureFile } from "./minecraftAssets.cjs";
-
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: "mctex",
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      bypassCSP: true,
-      stream: true,
-      corsEnabled: true
-    }
-  }
-]);
+import { getMinecraftHomePath, prepareMinecraftAssets } from "./minecraftAssets.cjs";
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 
@@ -89,27 +74,17 @@ ipcMain.handle("file:saveSkript", async (_event, payload: { path?: string; conte
 ipcMain.handle("minecraft:getHome", () => getMinecraftHomePath());
 
 ipcMain.handle("minecraft:prepareAssets", async (_event, version: string) => {
-  return prepareMinecraftAssets(version);
+  try {
+    const payload = await prepareMinecraftAssets(version);
+    console.log(`[minecraft] ${payload.version}: ${payload.itemCount} items from ${payload.minecraftPath}`);
+    return payload;
+  } catch (error) {
+    console.error("[minecraft] prepareAssets failed:", error);
+    throw error;
+  }
 });
 
-app.whenReady().then(() => {
-  protocol.handle("mctex", async (request) => {
-    try {
-      const url = new URL(request.url);
-      const version = url.searchParams.get("v") || "1.21.4";
-      const textureKey = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
-      const file = resolveTextureFile(version, textureKey);
-      if (!file) {
-        return new Response("Not found", { status: 404 });
-      }
-      return net.fetch(pathToFileURL(file).href);
-    } catch {
-      return new Response("Bad request", { status: 400 });
-    }
-  });
-
-  createWindow();
-});
+app.whenReady().then(createWindow);
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {

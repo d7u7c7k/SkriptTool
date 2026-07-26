@@ -13,6 +13,8 @@ export type MinecraftCatalogItem = {
   labelKo: string;
   /** Relative texture key: item/golden_apple */
   texture: string;
+  /** Inline PNG so the renderer needs no file or custom protocol access */
+  dataUrl: string;
 };
 
 export type MinecraftAssetsPayload = {
@@ -36,11 +38,10 @@ const SKIP_IDS = new Set([
   "nether_portal",
   "end_portal",
   "end_gateway",
-  "light",
-  "barrier" // keep barrier actually - it's useful. Remove from skip.
+  "light"
 ]);
 
-SKIP_IDS.delete("barrier");
+const payloadCache = new Map<string, MinecraftAssetsPayload>();
 
 function getMinecraftPath() {
   return path.join(process.env.APPDATA || path.join(app.getPath("home"), "AppData", "Roaming"), ".minecraft");
@@ -71,7 +72,7 @@ export async function resolveInstalledVersion(requested: string): Promise<string
   }
 
   const entries = await fs.readdir(versionsDir, { withFileTypes: true });
-  const withJar = [];
+  const withJar: string[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) {
       continue;
@@ -86,7 +87,6 @@ export async function resolveInstalledVersion(requested: string): Promise<string
     return requested;
   }
 
-  // Prefer same major.minor prefix (1.21.x)
   const prefix = requested.split(".").slice(0, 2).join(".");
   const sameLine = withJar.filter((name) => name.startsWith(prefix)).sort().reverse();
   if (sameLine[0]) {
@@ -105,17 +105,16 @@ async function readAssetIndexId(version: string): Promise<string | null> {
   return raw.assetIndex?.id ?? null;
 }
 
+/** Language files live in the hashed asset object store, not in the jar. */
 async function readLangObject(assetIndexId: string, langFile: string): Promise<Record<string, string>> {
   const indexPath = path.join(getMinecraftPath(), "assets", "indexes", `${assetIndexId}.json`);
   if (!(await pathExists(indexPath))) {
-    // fallback: try jar en_us only via empty
     return {};
   }
   const index = JSON.parse(await fs.readFile(indexPath, "utf8")) as {
     objects: Record<string, { hash: string }>;
   };
-  const key = `minecraft/lang/${langFile}`;
-  const obj = index.objects[key];
+  const obj = index.objects[`minecraft/lang/${langFile}`];
   if (!obj?.hash) {
     return {};
   }
@@ -127,12 +126,12 @@ async function readLangObject(assetIndexId: string, langFile: string): Promise<R
 }
 
 async function extractTexturesFromJar(version: string, cacheDir: string) {
-  const jarPath = path.join(getMinecraftPath(), "versions", version, `${version}.jar`);
   const marker = path.join(cacheDir, ".extracted");
   if (await pathExists(marker)) {
     return;
   }
 
+  const jarPath = path.join(getMinecraftPath(), "versions", version, `${version}.jar`);
   const bytes = new Uint8Array(await fs.readFile(jarPath));
   const entries = unzipSync(bytes);
   await fs.mkdir(path.join(cacheDir, "item"), { recursive: true });
@@ -144,14 +143,9 @@ async function extractTexturesFromJar(version: string, cacheDir: string) {
     if (!match || !data?.length) {
       continue;
     }
-    const kind = match[1].toLowerCase();
-    const file = match[2].toLowerCase();
-    const out = path.join(cacheDir, kind, `${file}.png`);
-    await fs.mkdir(path.dirname(out), { recursive: true });
-    await fs.writeFile(out, data);
+    await fs.writeFile(path.join(cacheDir, match[1].toLowerCase(), `${match[2].toLowerCase()}.png`), data);
   }
 
-  // Also pull en_us.json from jar for fallback names
   const enEntry = entries["assets/minecraft/lang/en_us.json"];
   if (enEntry) {
     await fs.writeFile(path.join(cacheDir, "en_us.json"), enEntry);
@@ -160,26 +154,26 @@ async function extractTexturesFromJar(version: string, cacheDir: string) {
   await fs.writeFile(marker, new Date().toISOString(), "utf8");
 }
 
-function textureExists(cacheDir: string, textureKey: string) {
-  return fsSync.existsSync(path.join(cacheDir, `${textureKey}.png`));
-}
-
 function pickTexture(cacheDir: string, rawId: string): string | null {
   const candidates = [
     `item/${rawId}`,
     `block/${rawId}`,
     `block/${rawId}_top`,
-    `block/${rawId}_side`,
     `block/${rawId}_front`,
-    `item/${rawId}_0`,
+    `block/${rawId}_side`,
     `item/${rawId}_00`
   ];
   for (const candidate of candidates) {
-    if (textureExists(cacheDir, candidate)) {
+    if (fsSync.existsSync(path.join(cacheDir, `${candidate}.png`))) {
       return candidate;
     }
   }
   return null;
+}
+
+function readDataUrl(cacheDir: string, textureKey: string): string {
+  const file = path.join(cacheDir, `${textureKey}.png`);
+  return `data:image/png;base64,${fsSync.readFileSync(file).toString("base64")}`;
 }
 
 function buildCatalog(
@@ -193,37 +187,33 @@ function buildCatalog(
     if (SKIP_IDS.has(rawId)) {
       return;
     }
-    const texture = pickTexture(cacheDir, rawId);
-    if (!texture) {
-      return;
-    }
     const id = snakeToSkript(rawId);
     if (items.has(id)) {
+      return;
+    }
+    const texture = pickTexture(cacheDir, rawId);
+    if (!texture) {
       return;
     }
     items.set(id, {
       id,
       label: enName || id,
       labelKo: koName || "",
-      texture
+      texture,
+      dataUrl: readDataUrl(cacheDir, texture)
     });
   };
 
-  for (const [key, enName] of Object.entries(en)) {
-    if (key.startsWith("item.minecraft.")) {
-      const rawId = key.slice("item.minecraft.".length);
-      add(rawId, enName, ko[key] || "");
+  for (const prefix of ["item.minecraft.", "block.minecraft."]) {
+    for (const [key, enName] of Object.entries(en)) {
+      if (key.startsWith(prefix)) {
+        const rawId = key.slice(prefix.length);
+        add(rawId, enName, ko[key] || "");
+      }
     }
   }
 
-  for (const [key, enName] of Object.entries(en)) {
-    if (key.startsWith("block.minecraft.")) {
-      const rawId = key.slice("block.minecraft.".length);
-      add(rawId, enName, ko[key] || "");
-    }
-  }
-
-  // Ensure every item texture file is represented even if lang missing
+  // Cover textures that have no language entry (or a differently keyed one).
   const itemDir = path.join(cacheDir, "item");
   if (fsSync.existsSync(itemDir)) {
     for (const file of fsSync.readdirSync(itemDir)) {
@@ -231,12 +221,15 @@ function buildCatalog(
         continue;
       }
       const rawId = file.replace(/\.png$/i, "");
-      // skip animated frames like compass_01 if base exists handled by lang; still add unique
-      if (/_(?:\d{2})$/.test(rawId) && rawId !== "compass_00" && rawId !== "clock_00") {
+      if (/_\d{2}$/.test(rawId) && !rawId.endsWith("_00")) {
         continue;
       }
       const normalized = rawId.replace(/_00$/, "");
-      add(normalized, en[`item.minecraft.${normalized}`] || snakeToSkript(normalized), ko[`item.minecraft.${normalized}`] || "");
+      add(
+        normalized,
+        en[`item.minecraft.${normalized}`] || snakeToSkript(normalized),
+        ko[`item.minecraft.${normalized}`] || ""
+      );
     }
   }
 
@@ -246,6 +239,12 @@ function buildCatalog(
 export async function prepareMinecraftAssets(requestedVersion: string): Promise<MinecraftAssetsPayload> {
   const minecraftPath = getMinecraftPath();
   const version = (await resolveInstalledVersion(requestedVersion)) ?? requestedVersion;
+
+  const cached = payloadCache.get(version);
+  if (cached) {
+    return cached;
+  }
+
   const jarPath = path.join(minecraftPath, "versions", version, `${version}.jar`);
   if (!(await pathExists(jarPath))) {
     throw new Error(`.minecraft 버전 jar를 찾을 수 없습니다: ${jarPath}`);
@@ -255,7 +254,6 @@ export async function prepareMinecraftAssets(requestedVersion: string): Promise<
   await fs.mkdir(cacheDir, { recursive: true });
   await extractTexturesFromJar(version, cacheDir);
 
-  const assetIndexId = await readAssetIndexId(version);
   let en: Record<string, string> = {};
   let ko: Record<string, string> = {};
 
@@ -264,27 +262,25 @@ export async function prepareMinecraftAssets(requestedVersion: string): Promise<
     en = JSON.parse(await fs.readFile(cachedEn, "utf8")) as Record<string, string>;
   }
 
+  const assetIndexId = await readAssetIndexId(version);
   if (assetIndexId) {
     const enFromAssets = await readLangObject(assetIndexId, "en_us.json");
-    const koFromAssets = await readLangObject(assetIndexId, "ko_kr.json");
     if (Object.keys(enFromAssets).length > 0) {
       en = enFromAssets;
     }
-    ko = koFromAssets;
+    ko = await readLangObject(assetIndexId, "ko_kr.json");
   }
 
   const items = buildCatalog(cacheDir, en, ko);
-  return {
+  const payload: MinecraftAssetsPayload = {
     version,
     minecraftPath,
     itemCount: items.length,
     items
   };
-}
 
-export function resolveTextureFile(version: string, textureKey: string): string | null {
-  const file = path.join(cacheRoot(version), `${textureKey.replace(/\.png$/i, "")}.png`);
-  return fsSync.existsSync(file) ? file : null;
+  payloadCache.set(version, payload);
+  return payload;
 }
 
 export function getMinecraftHomePath() {

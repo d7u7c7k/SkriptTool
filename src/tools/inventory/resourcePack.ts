@@ -2,11 +2,15 @@ import { unzipSync } from "fflate";
 
 export type LoadedResourcePack = {
   name: string;
-  /** texture path (item/foo) → blob: URL */
+  /** texture key (item/foo) → blob: URL */
   textures: Map<string, string>;
 };
 
 const TEXTURE_IN_PACK = /(?:^|\/)assets\/minecraft\/textures\/((?:item|block)\/[^/]+)\.png$/i;
+
+function normalizeKey(texturePath: string) {
+  return texturePath.replace(/^\/+/, "").replace(/\.png$/i, "").toLowerCase();
+}
 
 /** Parse a Minecraft resource pack ZIP and extract item/block PNG textures. */
 export async function loadResourcePackFromFile(file: File): Promise<LoadedResourcePack> {
@@ -20,10 +24,8 @@ export async function loadResourcePackFromFile(file: File): Promise<LoadedResour
     if (!match || !data?.length) {
       continue;
     }
-    const key = match[1].toLowerCase();
-    const copy = new Uint8Array(data);
-    const blob = new Blob([copy], { type: "image/png" });
-    textures.set(key, URL.createObjectURL(blob));
+    const blob = new Blob([new Uint8Array(data)], { type: "image/png" });
+    textures.set(match[1].toLowerCase(), URL.createObjectURL(blob));
   }
 
   return { name: file.name, textures };
@@ -38,16 +40,12 @@ export function revokeResourcePack(pack: LoadedResourcePack | null) {
   }
 }
 
-export function resolveTextureUrl(
-  texturePath: string,
-  minecraftVersion: string,
-  pack: LoadedResourcePack | null
-): string {
-  const key = texturePath.replace(/^\/+/, "").replace(/\.png$/i, "").toLowerCase();
-  const fromPack = pack?.textures.get(key);
-  if (fromPack) {
-    return fromPack;
-  }
+export function packTextureUrl(texturePath: string, pack: LoadedResourcePack | null): string | null {
+  return pack?.textures.get(normalizeKey(texturePath)) ?? null;
+}
+
+/** Last resort when no local jar and no pack is available. */
+export function remoteTextureUrl(texturePath: string, minecraftVersion: string): string {
   const version = minecraftVersion || "1.21.4";
-  return `https://assets.mcasset.cloud/${version}/assets/minecraft/textures/${key}.png`;
+  return `https://assets.mcasset.cloud/${version}/assets/minecraft/textures/${normalizeKey(texturePath)}.png`;
 }
