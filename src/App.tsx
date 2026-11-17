@@ -1,626 +1,360 @@
-import Editor, { type Monaco, type OnMount } from "@monaco-editor/react";
-import type { editor } from "monaco-editor";
 import {
-  Bug,
-  CheckCircle2,
-  FileCode2,
+  FilePlus2,
+  Folder,
   FolderOpen,
-  Package,
-  Play,
-  Save,
-  Search,
-  Settings,
-  TerminalSquare,
-  Wand2
+  ListTree,
+  PanelLeft,
+  Settings as SettingsIcon,
+  Sparkles
 } from "lucide-react";
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import type { editor } from "monaco-editor";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createDefaultEnvironment, type EnvironmentConfig } from "./catalog";
-import { ExtensionsPanel } from "./catalog/ExtensionsPanel";
-import { registerSkriptLanguage } from "./skriptLanguage";
-import {
-  applyGeneratedAtMarker,
-  defaultInventoryBuilder,
-  defaultSendBuilder,
-  generateInventoryLines,
-  generateSendLines,
-  InventoryToolPanel,
-  inventoryLayouts,
-  openToolFromEditorLine,
-  SendToolPanel,
-  ToolDock,
-  type InventoryBuilder,
-  type SendBuilder,
-  type ToolId
-} from "./tools";
+import { analyzeDiagnostics } from "./diagnostics/analyze";
+import { DiagnosticBar } from "./diagnostics/DiagnosticBar";
+import { countDiagnostics } from "./diagnostics/types";
+import { SkriptEditor } from "./editor/SkriptEditor";
+import { EnvironmentMenu } from "./environment/EnvironmentMenu";
+import { normalizeEnvironment } from "./environment/normalize";
+import { FlowInspector } from "./inspector/FlowInspector";
+import { usePersistentState } from "./lib/usePersistentState";
+import { SettingsPanel } from "./settings/SettingsPanel";
+import { defaultEditorSettings, sanitizeEditorSettings, type EditorSettings } from "./settings/types";
+import { useTheme } from "./theme/ThemeProvider";
+import { FileTree } from "./workspace/FileTree";
+import { TabBar } from "./workspace/TabBar";
+import { isTabDirty, type OpenTab } from "./workspace/types";
+import { useWorkspace } from "./workspace/useWorkspace";
 
-const starterScript = `options:
-  prefix: &6[SkriptTool]
+function normalizeSettings(value: unknown): EditorSettings | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return sanitizeEditorSettings(value as Partial<EditorSettings>);
+}
 
-on right click with grass block:
-  @tool:inventory
-
-command /hello:
-  trigger:
-    @tool:send
-`;
-
-type OpenFile = {
-  name: string;
-  path?: string;
-  handle?: FileSystemFileHandle;
-  content: string;
-  dirty: boolean;
-};
-
-type ActiveView = "explorer" | "setup" | "functions" | "search" | "run" | "problems" | "settings";
-type PanelView = "terminal" | "problems";
-type Severity = "error" | "warning" | "info";
-
-type Diagnostic = {
-  line: number;
-  severity: Severity;
-  message: string;
-  tip: string;
-  example: string;
-};
-
-function diagnoseSkript(content: string): Diagnostic[] {
-  return content.split(/\r\n|\r|\n/).flatMap((line, index) => {
-    const lineNumber = index + 1;
-    const trimmed = line.trim();
-    const diagnostics: Diagnostic[] = [];
-
-    if (/^@tool(?::|\s+)inventory\s*$/i.test(trimmed)) {
-      diagnostics.push({
-        line: lineNumber,
-        severity: "info",
-        message: "@tool:inventory — 오른쪽 Tool 탭에서 GUI를 편집하세요.",
-        tip: "슬롯에 아이템을 배치한 뒤 Apply로 코드를 생성합니다.",
-        example: 'open chest inventory with 1 row named "상점" to player'
-      });
-    }
-
-    if (/^@tool(?::|\s+)send\s*$/i.test(trimmed)) {
-      diagnostics.push({
-        line: lineNumber,
-        severity: "info",
-        message: "@tool:send — 오른쪽 Tool 탭에서 메시지를 작성하세요.",
-        tip: "채팅/타이틀/액션바를 고른 뒤 Apply로 코드를 생성합니다.",
-        example: 'send "&a안녕하세요" to player'
-      });
-    }
-
-    if (/^on\s+rightclick\s+with\b/i.test(trimmed)) {
-      diagnostics.push({
-        line: lineNumber,
-        severity: "warning",
-        message: "버전에 따라 rightclick 표기가 인식되지 않을 수 있습니다.",
-        tip: "Skript 버전별로 이벤트 표기가 다르게 동작할 수 있으니 right click 표기를 권장합니다.",
-        example: "on right click with grass block:"
-      });
-    }
-
-    if (/to\s+player"\s*$/i.test(trimmed)) {
-      diagnostics.push({
-        line: lineNumber,
-        severity: "error",
-        message: "줄 끝에 불필요한 따옴표가 있습니다.",
-        tip: "player 뒤의 따옴표를 제거해야 합니다.",
-        example: 'open chest inventory with 1 row named "상점" to player'
-      });
-    }
-
-    if (/set\s+slot\s+\d+\s+of\s+player's\s+current\s+inventory/i.test(trimmed)) {
-      diagnostics.push({
-        line: lineNumber,
-        severity: "warning",
-        message: "인벤토리 슬롯 번호는 보통 0부터 시작합니다.",
-        tip: "사용자에게 보이는 5번째 칸이면 실제 slot 4가 맞을 수 있습니다.",
-        example: "set slot 4 of player's current inventory to golden apple"
-      });
-    }
-
-    return diagnostics;
-  });
+function WelcomeScreen({ onNewFile, onOpenFolder }: { onNewFile: () => void; onOpenFolder: () => void }) {
+  return (
+    <div className="welcome">
+      <div className="welcome-mark">S</div>
+      <h1>손으로 쓰는 Skript</h1>
+      <p className="welcome-sub">
+        AI가 대신 써 주지 않습니다. 대신 <strong>어떤 흐름으로 실행되는지</strong> 옆에서 짚어 줍니다.
+      </p>
+      <div className="welcome-actions">
+        <button className="primary-btn" onClick={onNewFile}>
+          <FilePlus2 size={15} /> 새 스크립트
+        </button>
+        <button className="ghost-btn" onClick={onOpenFolder}>
+          <FolderOpen size={15} /> 폴더 열기
+        </button>
+      </div>
+      <div className="welcome-grid">
+        <div>
+          <h4>
+            <ListTree size={14} /> 코드 흐름
+          </h4>
+          <p>트리거 → 조건 → 반복 → 실행 순서를 한국어로 보여 줍니다.</p>
+        </div>
+        <div>
+          <h4>
+            <Sparkles size={14} /> 실시간 진단
+          </h4>
+          <p>매 틱 반복, 넓은 loop, 전역 변수 남용을 미리 알려 줍니다.</p>
+        </div>
+        <div>
+          <h4>
+            <SettingsIcon size={14} /> 커스텀 테마
+          </h4>
+          <p>배경·패널·강조색·폰트를 바꾸고 저장할 수 있습니다.</p>
+        </div>
+      </div>
+      <div className="welcome-shortcuts">
+        <span>
+          <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>S</kbd> 저장
+        </span>
+        <span>
+          <kbd>Shift</kbd> + <kbd>S</kbd> 다른 이름으로
+        </span>
+        <span>
+          <kbd>O</kbd> 폴더 열기
+        </span>
+        <span>
+          <kbd>B</kbd> 사이드바
+        </span>
+        <span>
+          <kbd>Shift</kbd> + <kbd>I</kbd> 코드 흐름
+        </span>
+      </div>
+    </div>
+  );
 }
 
 export function App() {
-  const [file, setFile] = useState<OpenFile>({
-    name: "welcome.sk",
-    content: starterScript,
-    dirty: false
-  });
-  const [activeView, setActiveView] = useState<ActiveView>("explorer");
-  const [panelView, setPanelView] = useState<PanelView>("problems");
-  const [status, setStatus] = useState("Ready");
-  const [environment, setEnvironment] = useState<EnvironmentConfig>(() => createDefaultEnvironment());
-  const [builder, setBuilder] = useState<InventoryBuilder>(defaultInventoryBuilder);
-  const [sendBuilder, setSendBuilder] = useState<SendBuilder>(defaultSendBuilder);
-  const [selectedSlots, setSelectedSlots] = useState<number[]>([4]);
-  const [selectedItem, setSelectedItem] = useState("golden apple");
-  const [toolDockOpen, setToolDockOpen] = useState(true);
-  const [activeTool, setActiveTool] = useState<ToolId>("send");
-  const [markerLine, setMarkerLine] = useState<number | undefined>(undefined);
-  const [markerIndent, setMarkerIndent] = useState("");
-
-  const fallbackFileInput = useRef<HTMLInputElement>(null);
-  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
-  const monacoRef = useRef<Monaco | null>(null);
-  const decorationsRef = useRef<string[]>([]);
-
-  const diagnostics = useMemo(() => diagnoseSkript(file.content), [file.content]);
-  const lineCount = useMemo(() => file.content.split(/\r\n|\r|\n/).length, [file.content]);
-  const diagnosticsCount = useMemo(
-    () => ({
-      error: diagnostics.filter((item) => item.severity === "error").length,
-      warning: diagnostics.filter((item) => item.severity === "warning").length
-    }),
-    [diagnostics]
+  const { theme } = useTheme();
+  const defaultEnvironment = useMemo(() => createDefaultEnvironment(), []);
+  const [environment, setEnvironment] = usePersistentState<EnvironmentConfig>(
+    "skripttool.environment.v2",
+    defaultEnvironment,
+    normalizeEnvironment
+  );
+  const [editorSettings, setEditorSettings] = usePersistentState<EditorSettings>(
+    "skripttool.editor.v2",
+    defaultEditorSettings,
+    normalizeSettings
   );
 
-  const inventoryLayout = inventoryLayouts[builder.inventoryType] ?? inventoryLayouts.chest;
-  const inventorySlotCount = builder.inventoryType === "chest" ? builder.rows * 9 : inventoryLayout.slots;
+  const [status, setStatus] = useState("예제 워크스페이스로 시작합니다 · 오른쪽 코드 흐름을 확인하세요");
+  const { workspace, tabs, activeTab, activePath, openFile, openFolder, refresh, createFile, saveTab, saveTabAs, updateContent, closeTab, activateTab } =
+    useWorkspace(setStatus);
+
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [creatingFile, setCreatingFile] = useState(false);
+  const [pendingClose, setPendingClose] = useState<OpenTab | null>(null);
+  const [cursor, setCursor] = useState({ line: 1, column: 1 });
+
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+
+  const diagnostics = useMemo(() => (activeTab ? analyzeDiagnostics(activeTab.content) : []), [activeTab]);
+  const counts = useMemo(() => countDiagnostics(diagnostics), [diagnostics]);
+  const lineCount = useMemo(() => (activeTab ? activeTab.content.split(/\r\n|\r|\n/).length : 0), [activeTab]);
 
   useEffect(() => {
-    setSelectedSlots((current) => current.filter((slot) => slot < inventorySlotCount));
-    setBuilder((current) => ({
-      ...current,
-      slots: Object.fromEntries(Object.entries(current.slots).filter(([slot]) => Number(slot) < inventorySlotCount))
-    }));
-  }, [inventorySlotCount]);
+    setCursor({ line: 1, column: 1 });
+  }, [activePath]);
 
-  useEffect(() => {
-    const monaco = monacoRef.current;
-    const currentEditor = editorRef.current;
-    const model = currentEditor?.getModel();
-
-    if (!monaco || !currentEditor || !model) {
+  const jumpToLine = useCallback((line: number) => {
+    const mounted = editorRef.current;
+    if (!mounted) {
+      setCursor({ line, column: 1 });
       return;
     }
+    mounted.revealLineInCenter(line);
+    mounted.setPosition({ lineNumber: line, column: 1 });
+    mounted.focus();
+  }, []);
 
-    monaco.editor.setModelMarkers(
-      model,
-      "skript-tool",
-      diagnostics.map((item) => ({
-        startLineNumber: item.line,
-        endLineNumber: item.line,
-        startColumn: 1,
-        endColumn: model.getLineMaxColumn(item.line),
-        message: `${item.message}\nTIP: ${item.tip}\n예시: ${item.example}`,
-        severity:
-          item.severity === "error"
-            ? monaco.MarkerSeverity.Error
-            : item.severity === "warning"
-              ? monaco.MarkerSeverity.Warning
-              : monaco.MarkerSeverity.Info
-      }))
-    );
+  const startNewFile = useCallback(() => {
+    setSidebarOpen(true);
+    setCreatingFile(true);
+  }, []);
 
-    decorationsRef.current = currentEditor.deltaDecorations(
-      decorationsRef.current,
-      diagnostics.map((item) => ({
-        range: new monaco.Range(item.line, 1, item.line, 1),
-        options: {
-          isWholeLine: true,
-          className: item.severity === "error" ? "line-error" : item.severity === "warning" ? "line-warning" : "line-info"
-        }
-      }))
-    );
-  }, [diagnostics]);
-
-  const handleEditorMount: OnMount = (mountedEditor, monaco) => {
-    editorRef.current = mountedEditor;
-    monacoRef.current = monaco;
-    registerSkriptLanguage(monaco);
-    mountedEditor.onDidChangeCursorPosition((event) => {
-      const lineContent = mountedEditor.getModel()?.getLineContent(event.position.lineNumber) ?? "";
-      const request = openToolFromEditorLine(lineContent, event.position.lineNumber);
-      if (request) {
-        setActiveTool(request.toolId);
-        setMarkerLine(request.markerLine);
-        setMarkerIndent(request.indent);
-        setToolDockOpen(true);
-        if (request.toolId === "send") {
-          setSendBuilder(defaultSendBuilder);
-        }
-        setStatus(`Opened @tool:${request.toolId}`);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const mod = event.metaKey || event.ctrlKey;
+      if (!mod) {
+        return;
       }
-    });
+      const key = event.key.toLowerCase();
+      if (key === "s") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          void saveTabAs();
+        } else {
+          void saveTab();
+        }
+      } else if (key === "o") {
+        event.preventDefault();
+        void openFolder();
+      } else if (key === "n") {
+        event.preventDefault();
+        startNewFile();
+      } else if (key === "b") {
+        event.preventDefault();
+        setSidebarOpen((value) => !value);
+      } else if (key === "i" && event.shiftKey) {
+        event.preventDefault();
+        setInspectorOpen((value) => !value);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [openFolder, saveTab, saveTabAs, startNewFile]);
+
+  const requestClose = (tab: OpenTab) => {
+    if (isTabDirty(tab)) {
+      setPendingClose(tab);
+      return;
+    }
+    closeTab(tab.path);
   };
 
-  async function openFile() {
-    if (!window.skriptApi) {
-      fallbackFileInput.current?.click();
+  const saveAndClose = async () => {
+    if (!pendingClose) {
       return;
     }
-
-    const opened = await window.skriptApi.openSkript();
-    if (!opened) {
-      return;
+    const saved = await saveTab(pendingClose.path);
+    if (saved) {
+      closeTab(pendingClose.path);
     }
+    setPendingClose(null);
+  };
 
-    setFile({ name: opened.name, path: opened.path, content: opened.content, dirty: false });
-    setStatus(`Opened ${opened.name}`);
-  }
-
-  async function saveFile() {
-    if (!window.skriptApi) {
-      const blob = new Blob([file.content], { type: "text/plain;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = file.name.endsWith(".sk") ? file.name : `${file.name}.sk`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-      setFile((current) => ({ ...current, dirty: false }));
-      setStatus(`Saved ${file.name}`);
-      return;
-    }
-
-    const saved = await window.skriptApi.saveSkript({ path: file.path, content: file.content });
-    if (!saved) {
-      return;
-    }
-
-    setFile((current) => ({ ...current, name: saved.name, path: saved.path, dirty: false }));
-    setStatus(`Saved ${saved.name}`);
-  }
-
-  async function handleFallbackOpen(event: ChangeEvent<HTMLInputElement>) {
-    const selectedFile = event.target.files?.[0];
-    event.target.value = "";
-
-    if (!selectedFile) {
-      return;
-    }
-
-    const content = await selectedFile.text();
-    setFile({ name: selectedFile.name, content, dirty: false });
-    setStatus(`Opened ${selectedFile.name}`);
-  }
-
-  function applyInventoryBuilder() {
-    setFile((current) => ({
-      ...current,
-      content: applyGeneratedAtMarker(current.content, "inventory", generateInventoryLines(builder), {
-        preferredLine: markerLine,
-        lockedIndent: markerIndent
-      }),
-      dirty: true
-    }));
-    setPanelView("problems");
-    setStatus("Applied inventory GUI to code");
-  }
-
-  function applySendBuilder() {
-    setFile((current) => ({
-      ...current,
-      content: applyGeneratedAtMarker(current.content, "send", generateSendLines(sendBuilder), {
-        preferredLine: markerLine,
-        lockedIndent: markerIndent
-      }),
-      dirty: true
-    }));
-    setSendBuilder(defaultSendBuilder);
-    setPanelView("problems");
-    setStatus("Applied send tool to code");
-  }
-
-  function renderSidebar() {
-    if (activeView === "setup") {
-      return <ExtensionsPanel environment={environment} onChange={setEnvironment} onStatus={setStatus} />;
-    }
-
-    if (activeView === "problems") {
-      return (
-        <>
-          <div className="sidebar-header">
-            <span>PROBLEMS</span>
-            <button title="Run diagnostics" onClick={() => setStatus("Diagnostics refreshed")}>
-              <CheckCircle2 size={16} />
-            </button>
-          </div>
-          <section className="workspace-block">
-            {diagnostics.length === 0 ? (
-              <div className="empty-note">No problems</div>
-            ) : (
-              diagnostics.map((item, index) => (
-                <button
-                  className={`problem-row ${item.severity}`}
-                  key={`${item.line}-${index}`}
-                  onClick={() => {
-                    editorRef.current?.revealLineInCenter(item.line);
-                    editorRef.current?.setPosition({ lineNumber: item.line, column: 1 });
-                  }}
-                >
-                  <span>Line {item.line}</span>
-                  <strong>{item.message}</strong>
-                </button>
-              ))
-            )}
-          </section>
-        </>
-      );
-    }
-
-    if (activeView === "search") {
-      return (
-        <>
-          <div className="sidebar-header">
-            <span>SEARCH</span>
-          </div>
-          <section className="workspace-block form-stack">
-            <input placeholder="Search in current file" onChange={(event) => setStatus(`Search: ${event.target.value}`)} />
-            <div className="empty-note">현재 파일 검색 UI 자리입니다.</div>
-          </section>
-        </>
-      );
-    }
-
-    if (activeView === "run") {
-      return (
-        <>
-          <div className="sidebar-header">
-            <span>RUN</span>
-            <button title="Run diagnostics" onClick={() => setPanelView("problems")}>
-              <Play size={16} />
-            </button>
-          </div>
-          <section className="workspace-block form-stack">
-            <button className="wide-command" onClick={() => setPanelView("problems")}>
-              Run diagnostics
-            </button>
-            <button className="wide-command" onClick={() => setStatus("Server console integration is planned")}>
-              Server console
-            </button>
-          </section>
-        </>
-      );
-    }
-
-    if (activeView === "settings") {
-      return (
-        <>
-          <div className="sidebar-header">
-            <span>SETTINGS</span>
-          </div>
-          <section className="workspace-block form-stack">
-            <div className="setting-line">
-              <span>Editor</span>
-              <strong>Monaco</strong>
-            </div>
-            <div className="setting-line">
-              <span>Packaging</span>
-              <strong>NSIS exe</strong>
-            </div>
-          </section>
-        </>
-      );
-    }
-
-    if (activeView === "functions") {
-      return (
-        <>
-          <div className="sidebar-header">
-            <span>TOOLS</span>
-          </div>
-          <section className="workspace-block form-stack">
-            <button
-              className="wide-command"
-              onClick={() => {
-                setSendBuilder(defaultSendBuilder);
-                setActiveTool("send");
-                setToolDockOpen(true);
-              }}
-            >
-              Open Send tool
-            </button>
-            <button
-              className="wide-command"
-              onClick={() => {
-                setActiveTool("inventory");
-                setToolDockOpen(true);
-              }}
-            >
-              Open Inventory tool
-            </button>
-            <div className="empty-note">에디터에 @tool: 을 입력한 뒤 자동완성으로도 열 수 있습니다.</div>
-          </section>
-        </>
-      );
-    }
-
-    return (
-      <>
-        <div className="sidebar-header">
-          <span>EXPLORER</span>
-          <button title="Open Skript file" onClick={openFile}>
-            <FolderOpen size={16} />
-          </button>
-        </div>
-        <section className="workspace-block">
-          <div className="workspace-title">SKRIPT WORKSPACE</div>
-          <button className="file-row selected" onClick={() => setStatus(`Focused ${file.name}`)}>
-            <FileCode2 size={16} />
-            <span>{file.name}</span>
-            {file.dirty && <span className="dirty-dot" aria-label="Unsaved changes" />}
-          </button>
-          <div className="environment-summary">
-            <span>MC {environment.minecraftVersion}</span>
-            <span>Skript {environment.skriptVersion}</span>
-            <span>{environment.addons.length} addons</span>
-          </div>
-        </section>
-      </>
-    );
-  }
+  const kindLabel = workspace.kind === "electron" ? "로컬 폴더" : workspace.kind === "browser" ? "브라우저 폴더" : "예제 워크스페이스";
 
   return (
-    <main className="app-shell">
-      <input ref={fallbackFileInput} className="hidden-file-input" type="file" accept=".sk,text/plain" onChange={handleFallbackOpen} />
-
-      <aside className="activity-bar" aria-label="Primary navigation">
-        <button className={`activity ${activeView === "explorer" ? "active" : ""}`} title="Explorer" onClick={() => setActiveView("explorer")}>
-          <FileCode2 size={21} />
-        </button>
-        <button className={`activity ${activeView === "setup" ? "active" : ""}`} title="Extensions" onClick={() => setActiveView("setup")}>
-          <Package size={21} />
-        </button>
-        <button
-          className={`activity ${activeView === "functions" ? "active" : ""}`}
-          title="Tools"
-          onClick={() => {
-            setActiveView("functions");
-            setToolDockOpen(true);
-          }}
-        >
-          <Wand2 size={21} />
-        </button>
-        <button className={`activity ${activeView === "search" ? "active" : ""}`} title="Search" onClick={() => setActiveView("search")}>
-          <Search size={21} />
-        </button>
-        <button className={`activity ${activeView === "run" ? "active" : ""}`} title="Run" onClick={() => setActiveView("run")}>
-          <Play size={21} />
-        </button>
-        <button className={`activity ${activeView === "problems" ? "active" : ""}`} title="Problems" onClick={() => setActiveView("problems")}>
-          <Bug size={21} />
-        </button>
-        <button className={`activity bottom ${activeView === "settings" ? "active" : ""}`} title="Settings" onClick={() => setActiveView("settings")}>
-          <Settings size={21} />
-        </button>
-      </aside>
-
-      <aside className="sidebar">{renderSidebar()}</aside>
-
-      <section className="workbench">
-        <header className="titlebar">
-          <div className="tab active-tab">
-            <FileCode2 size={15} />
-            <span>{file.name}</span>
-            {file.dirty && <span className="unsaved">*</span>}
-          </div>
-          <div className="toolbar">
-            <button title="Open Skript file" onClick={openFile}>
-              <FolderOpen size={17} />
-            </button>
-            <button title="Save Skript file" onClick={saveFile}>
-              <Save size={17} />
-            </button>
-            <button
-              title="Run diagnostics"
-              onClick={() => {
-                setActiveView("problems");
-                setPanelView("problems");
-                setStatus("Diagnostics refreshed");
-              }}
-            >
-              <CheckCircle2 size={17} />
-            </button>
-          </div>
-        </header>
-
-        <div className={`main-area ${toolDockOpen ? "" : "dock-closed"}`}>
-          <div className="editor-area">
-            <Editor
-              height="100%"
-              language="skript"
-              theme="vs-dark"
-              value={file.content}
-              onMount={handleEditorMount}
-              onChange={(value) => setFile((current) => ({ ...current, content: value ?? "", dirty: true }))}
-              options={{
-                fontFamily: "JetBrains Mono, Consolas, 'Courier New', monospace",
-                fontSize: 14,
-                minimap: { enabled: true },
-                smoothScrolling: true,
-                tabSize: 2,
-                wordWrap: "on",
-                automaticLayout: true,
-                tabCompletion: "on",
-                suggestOnTriggerCharacters: true,
-                acceptSuggestionOnEnter: "on",
-                scrollBeyondLastLine: false,
-                renderWhitespace: "selection"
-              }}
-            />
-          </div>
-
-          {toolDockOpen && (
-            <ToolDock
-              activeTool={activeTool}
-              onActiveToolChange={(toolId) => {
-                setActiveTool(toolId);
-                if (toolId === "send") {
-                  setSendBuilder(defaultSendBuilder);
-                }
-                setStatus(`Switched to @tool:${toolId}`);
-              }}
-              onClose={() => setToolDockOpen(false)}
-            >
-              {activeTool === "send" ? (
-                <SendToolPanel builder={sendBuilder} onChange={setSendBuilder} onApply={applySendBuilder} />
-              ) : (
-                <InventoryToolPanel
-                  builder={builder}
-                  selectedSlots={selectedSlots}
-                  selectedItem={selectedItem}
-                  minecraftVersion={environment.minecraftVersion}
-                  onBuilderChange={setBuilder}
-                  onSelectedSlotsChange={setSelectedSlots}
-                  onSelectedItemChange={setSelectedItem}
-                  onStatus={setStatus}
-                  onApply={applyInventoryBuilder}
-                />
-              )}
-            </ToolDock>
-          )}
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand">
+          <span className="brand-mark">S</span>
+          <span className="brand-name">SkriptTool</span>
+          <span className="brand-version">v2</span>
         </div>
 
-        <section className="panel">
-          <div className="panel-tabs">
-            <button className={`panel-tab ${panelView === "terminal" ? "active-panel" : ""}`} onClick={() => setPanelView("terminal")}>
-              <TerminalSquare size={15} />
-              Terminal
+        <div className="topbar-project" title={workspace.root.path}>
+          <Folder size={13} />
+          <span className="project-name">{workspace.root.name}</span>
+          <span className="project-sep">·</span>
+          <span className="project-mode">{kindLabel}</span>
+        </div>
+
+        <div className="topbar-spacer" />
+
+        <div className="topbar-actions">
+          {!sidebarOpen && (
+            <button className="icon-btn" title="사이드바 열기 (Ctrl/Cmd+B)" onClick={() => setSidebarOpen(true)}>
+              <PanelLeft size={16} />
             </button>
-            <button className={`panel-tab ${panelView === "problems" ? "active-panel" : ""}`} onClick={() => setPanelView("problems")}>
-              <Bug size={15} />
-              Problems {diagnostics.length}
-            </button>
-          </div>
-          {panelView === "terminal" ? (
-            <div className="terminal-output">
-              <div>$ skript-tool --status</div>
-              <div>Ready · {status}</div>
-            </div>
-          ) : (
-            <div className="problems-panel">
-              {diagnostics.length === 0 ? (
-                <div className="empty-note">No problems detected.</div>
+          )}
+          <EnvironmentMenu environment={environment} onChange={setEnvironment} onStatus={setStatus} />
+          <button
+            className={`icon-btn ${inspectorOpen ? "active" : ""}`}
+            title="코드 흐름 패널 (Ctrl/Cmd+Shift+I)"
+            onClick={() => setInspectorOpen((value) => !value)}
+          >
+            <ListTree size={16} />
+          </button>
+          <button className="icon-btn" title="설정" onClick={() => setSettingsOpen(true)}>
+            <SettingsIcon size={16} />
+          </button>
+        </div>
+      </header>
+
+      <div className="app-body">
+        {sidebarOpen && (
+          <aside className="sidebar">
+            <FileTree
+              workspace={workspace}
+              activePath={activePath}
+              onOpenFile={(node) => void openFile(node)}
+              onOpenFolder={() => void openFolder()}
+              onRefresh={() => void refresh()}
+              onCreateFile={createFile}
+              onCollapse={() => setSidebarOpen(false)}
+              creating={creatingFile}
+              onRequestCreate={() => setCreatingFile(true)}
+              onCancelCreate={() => setCreatingFile(false)}
+            />
+          </aside>
+        )}
+
+        <main className="workbench">
+          <TabBar
+            tabs={tabs}
+            activePath={activePath}
+            onActivate={activateTab}
+            onClose={requestClose}
+            onNewFile={startNewFile}
+            onSave={() => void saveTab()}
+            onSaveAs={() => void saveTabAs()}
+            canSave={Boolean(activeTab)}
+          />
+
+          <div className={`editor-region ${inspectorOpen && activeTab ? "with-inspector" : ""}`}>
+            <div className="editor-area">
+              {activeTab ? (
+                <SkriptEditor
+                  tab={activeTab}
+                  theme={theme}
+                  settings={editorSettings}
+                  diagnostics={diagnostics}
+                  onContentChange={(value) => updateContent(activeTab.path, value)}
+                  onCursorChange={(line, column) => setCursor({ line, column })}
+                  onEditorReady={(mounted) => {
+                    editorRef.current = mounted;
+                  }}
+                />
               ) : (
-                diagnostics.map((item, index) => (
-                  <div className={`problem-detail ${item.severity}`} key={`panel-${item.line}-${index}`}>
-                    <strong>
-                      Line {item.line}: {item.message}
-                    </strong>
-                    <span>TIP: {item.tip}</span>
-                    <code>{item.example}</code>
-                  </div>
-                ))
+                <WelcomeScreen onNewFile={startNewFile} onOpenFolder={() => void openFolder()} />
               )}
             </div>
-          )}
-        </section>
 
-        <footer className="statusbar">
-          <span>{status}</span>
-          <span>
-            Ln {lineCount} · Err {diagnosticsCount.error} · Warn {diagnosticsCount.warning}
-          </span>
-          <span>
-            MC {environment.minecraftVersion} · Skript {environment.skriptVersion}
-          </span>
-        </footer>
-      </section>
-    </main>
+            {inspectorOpen && activeTab && (
+              <FlowInspector
+                fileName={activeTab.name}
+                content={activeTab.content}
+                cursorLine={cursor.line}
+                onJump={jumpToLine}
+              />
+            )}
+          </div>
+
+          <DiagnosticBar diagnostics={diagnostics} onJump={jumpToLine} />
+
+          <footer className="statusbar">
+            <span className="status-message">{status}</span>
+            <span className="status-spacer" />
+            <span className="status-item">
+              Ln {cursor.line}, Col {cursor.column}
+            </span>
+            <span className="status-item">{lineCount}줄</span>
+            <span className={`status-item ${counts.errors > 0 ? "has-error" : ""}`}>
+              오류 {counts.errors} · 경고 {counts.warnings} · 팁 {counts.tips}
+            </span>
+            <span className="status-item">
+              MC {environment.minecraftVersion} · Skript {environment.skriptVersion}
+            </span>
+            <span className="status-item status-theme" title="현재 테마">
+              {theme.name}
+            </span>
+          </footer>
+        </main>
+      </div>
+
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        settings={editorSettings}
+        onSettingsChange={setEditorSettings}
+        onStatus={setStatus}
+      />
+
+      {pendingClose && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setPendingClose(null);
+            }
+          }}
+        >
+          <div className="confirm-dialog" role="dialog" aria-label="저장하지 않은 변경">
+            <h3>저장하지 않은 변경</h3>
+            <p>
+              <strong>{pendingClose.name}</strong> 파일에 저장하지 않은 변경이 있습니다.
+            </p>
+            <div className="dialog-actions">
+              <button className="ghost-btn" onClick={() => setPendingClose(null)}>
+                취소
+              </button>
+              <button
+                className="ghost-btn danger"
+                onClick={() => {
+                  closeTab(pendingClose.path);
+                  setPendingClose(null);
+                }}
+              >
+                저장 안 함
+              </button>
+              <button className="primary-btn" onClick={() => void saveAndClose()}>
+                저장 후 닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

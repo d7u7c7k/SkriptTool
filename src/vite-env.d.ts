@@ -1,56 +1,40 @@
 /// <reference types="vite/client" />
 
-type SkriptFile = {
+type WorkspaceRootDto = {
+  name: string;
+  path: string;
+};
+
+type TreeNodeDto =
+  | { kind: "file"; name: string; path: string; relativePath: string }
+  | { kind: "folder"; name: string; path: string; relativePath: string; children: TreeNodeDto[] };
+
+type WorkspaceSnapshotDto = {
+  root: WorkspaceRootDto;
+  tree: TreeNodeDto[];
+};
+
+type CreatedFileDto = {
   path: string;
   name: string;
-  content: string;
+  relativePath: string;
 };
 
-type MinecraftCatalogItemDto = {
-  id: string;
-  label: string;
-  labelKo: string;
-  texture: string;
-  dataUrl: string;
-};
-
-type MinecraftAssetsDto = {
-  version: string;
-  minecraftPath: string;
-  itemCount: number;
-  items: MinecraftCatalogItemDto[];
-};
-
-interface FileSystemFileHandle {
+type SavedFileDto = {
+  path: string;
   name: string;
-  getFile: () => Promise<File>;
-  createWritable: () => Promise<FileSystemWritableFileStream>;
-}
+};
 
-interface FileSystemWritableFileStream extends WritableStream {
-  write: (data: string) => Promise<void>;
-  close: () => Promise<void>;
-}
+type SkriptApi = {
+  platform: string;
+  openFolder: () => Promise<WorkspaceSnapshotDto | null>;
+  refreshFolder: (rootPath: string) => Promise<WorkspaceSnapshotDto>;
+  readFile: (path: string) => Promise<string>;
+  writeFile: (path: string, content: string) => Promise<void>;
+  createFile: (rootPath: string, relativePath: string, content: string) => Promise<CreatedFileDto>;
+  saveFileAs: (suggestedName: string, content: string) => Promise<SavedFileDto | null>;
+};
 
 interface Window {
-  showOpenFilePicker?: (options?: {
-    multiple?: boolean;
-    types?: Array<{
-      description: string;
-      accept: Record<string, string[]>;
-    }>;
-  }) => Promise<FileSystemFileHandle[]>;
-  showSaveFilePicker?: (options?: {
-    suggestedName?: string;
-    types?: Array<{
-      description: string;
-      accept: Record<string, string[]>;
-    }>;
-  }) => Promise<FileSystemFileHandle>;
-  skriptApi?: {
-    openSkript: () => Promise<SkriptFile | null>;
-    saveSkript: (payload: { path?: string; content: string }) => Promise<{ path: string; name: string } | null>;
-    getMinecraftHome?: () => Promise<string>;
-    prepareMinecraftAssets?: (version: string) => Promise<MinecraftAssetsDto>;
-  };
+  skriptApi?: SkriptApi;
 }

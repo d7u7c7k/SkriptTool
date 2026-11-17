@@ -1,21 +1,20 @@
 {
   "name": "skript-tool",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "author": "RaahooWorld",
-  "description": "A VS Code-style desktop IDE for Minecraft Skript developers.",
+  "description": "A minimal, hand-coding-first Skript editor for Minecraft with a learning flow inspector.",
   "main": "dist-electron/main.cjs",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && node scripts/start-electron.mjs\"",
-    "build": "tsc && vite build && tsc -p electron/tsconfig.json",
+    "build": "node -e \"require('fs').rmSync('dist-electron',{recursive:true,force:true})\" && tsc && vite build && tsc -p electron/tsconfig.json",
     "preview": "vite preview --host 127.0.0.1",
     "electron": "node scripts/start-electron.mjs",
     "dist": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
-    "fflate": "^0.8.3",
     "lucide-react": "^0.468.0",
     "monaco-editor": "^0.52.0",
     "react": "^18.3.1",
@@ -36,7 +35,7 @@
   },
   "build": {
     "appId": "com.raahooworld.skripttool",
-    "productName": "Skript Tool",
+    "productName": "SkriptTool",
     "directories": {
       "output": "release"
     },
