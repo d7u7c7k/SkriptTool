@@ -2,6 +2,12 @@ import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import fs from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
+import {
+  getMcLibraryStatus,
+  pickMcLibraryPack,
+  removeMcLibraryVersion,
+  syncMcLibrary
+} from "./minecraftLibrary.cjs";
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 const SKIP_DIRECTORIES = new Set(["node_modules", "dist", "dist-electron", "release", ".git", ".vscode", ".idea"]);
@@ -299,6 +305,16 @@ ipcMain.handle("workspace:createFile", async (_event, rootPath: string, relative
   allowedFiles.add(target);
   return { path: target, name: path.basename(target), relativePath: normalized };
 });
+
+/* ---------------- 인게임 마크 공용 리소스 라이브러리 ---------------- */
+
+ipcMain.handle("mcLibrary:getStatus", async () => getMcLibraryStatus());
+
+ipcMain.handle("mcLibrary:sync", async (_event, targetMcVersion: string | null) => syncMcLibrary(targetMcVersion));
+
+ipcMain.handle("mcLibrary:pickPack", async () => pickMcLibraryPack());
+
+ipcMain.handle("mcLibrary:removeVersion", async (_event, versionKey: string) => removeMcLibraryVersion(versionKey));
 
 ipcMain.handle("workspace:saveAs", async (_event, suggestedName: string, content: string) => {
   const result = await dialog.showSaveDialog({

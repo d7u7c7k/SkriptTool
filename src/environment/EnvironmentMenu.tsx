@@ -1,4 +1,4 @@
-import { Boxes, ChevronDown, Cpu } from "lucide-react";
+import { Blocks, Boxes, ChevronDown, Cpu } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   findAddonPackage,
@@ -13,9 +13,10 @@ type Props = {
   environment: EnvironmentConfig;
   onChange: (environment: EnvironmentConfig, note: string) => void;
   onOpenAddons: () => void;
+  onOpenLibrary: () => void;
 };
 
-export function EnvironmentMenu({ environment, onChange, onOpenAddons }: Props) {
+export function EnvironmentMenu({ environment, onChange, onOpenAddons, onOpenLibrary }: Props) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
@@ -129,6 +130,13 @@ export function EnvironmentMenu({ environment, onChange, onOpenAddons }: Props) 
             onOpenAddons();
           }}>
             <Boxes size={14} /> 확장 관리 열기
+          </button>
+
+          <button className="ghost-btn env-open-addons" onClick={() => {
+            setOpen(false);
+            onOpenLibrary();
+          }}>
+            <Blocks size={14} /> 공용 마크 리소스 라이브러리
           </button>
         </div>
       )}

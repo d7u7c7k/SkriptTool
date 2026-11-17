@@ -48,6 +48,17 @@ AI가 코드를 대신 생성하지 않습니다. 대신 지금 쓴 코드가 **
 - 모든 애드온 카드(새 프로젝트 모달 포함)에 **인게임 지원 버전** 배지(`인게임 MC 1.19.4 ~ 1.21.8`)를 항상 표시합니다. 호환/비호환 모두 보입니다.
 - `skript-yaml`처럼 구버전 MC와 최신 MC를 같은 버전으로 커버하는 애드온에는 **`구버전~최신 지원`** 배지와 "같은 버전 하나로 구버전 MC 1.8 서버부터 최신 MC 1.21.8 서버까지 쓸 수 있습니다" 안내를 함께 보여 줍니다.
 
+### 공용 마크 리소스 라이브러리 (v2.3)
+인게임 마크의 아이템·블록 텍스처를 **앱 공용 데이터 폴더에 버전별로 한 번만** 풀어 두고 모든 프로젝트가 재사용합니다. 프로젝트 폴더에는 아무것도 복사하지 않습니다.
+
+- **저장 위치** — `<앱 데이터>/shared-mc-library/<버전>/textures/{item,block}/*.png` + `index.json`(버전·출처·텍스처 수·용량·생성 시각). Windows는 `%APPDATA%\SkriptTool\shared-mc-library`, macOS는 `~/Library/Application Support/SkriptTool/shared-mc-library` 아래입니다. 정확한 경로는 설정 화면에 표시됩니다.
+- **자동 탐색 순서** — ① 설치된 마크의 `versions/<현재 프로젝트 MC 버전>/<버전>.jar` → ② 정확히 없으면 `versions/`의 최신 설치 버전 `.jar` → ③ `versions/`가 비어 있으면 `resourcepacks/`의 최신 팩(`.zip`/폴더). 테스트용으로 `SKRIPTTOOL_MC_HOME` 환경변수로 마크 경로를 바꿀 수 있습니다.
+- **중복 방지** — 같은 버전 캐시가 `index.json`과 텍스처까지 온전하면 다시 풀지 않고 즉시 재사용합니다(UI에 `공용 캐시 재사용` 표시).
+- **직접 선택** — 「리소스팩 / JAR 직접 선택」으로 `.jar`, 리소스팩 `.zip`, 압축을 푼 팩 폴더를 고를 수 있습니다. 고른 파일은 읽기만 합니다.
+- **안전 추출** — `assets/minecraft/textures/item|block` 아래의 진짜 PNG만 저장하고, 절대 경로·`..`·드라이브 문자·비-PNG 파일은 건너뜁니다(Zip Slip 차단).
+- **관리** — 설정 화면에서 버전별 목록·총 용량·저장 경로를 보고, 필요 없는 버전은 개별 삭제할 수 있습니다. 상단바 블록 아이콘, 상태바의 `공용 리소스 라이브러리`, 환경 팝오버에서 바로 열립니다.
+- **브라우저 모드** — PC 폴더 접근이 필요하므로 Electron 전용입니다. 브라우저에서는 안내 문구만 보여 주고 다른 기능은 그대로 동작합니다.
+
 ### 문법 진단 색상
 | 표시 | 의미 | 예 |
 | --- | --- | --- |
@@ -99,7 +110,8 @@ npm run dist
 
 ```
 electron/
-  main.cts                 창 생성, 프로젝트 생성/열기·설정 파일·파일 IPC, 경로 검증
+  main.cts                 창 생성, 프로젝트 생성/열기·설정 파일·파일 IPC, 경로 검증, mcLibrary IPC
+  minecraftLibrary.cts     공용 마크 리소스 라이브러리(마크 경로 탐색·JAR/리소스팩 추출·캐시 관리)
   preload.cts              contextBridge로 skriptApi 노출
 src/
   launcher/                시작 화면과 새 프로젝트 모달
@@ -110,7 +122,7 @@ src/
   diagnostics/             정적 진단 규칙과 접이식 진단 바
   inspector/               트리거 파싱 · 실행 흐름 · 변수 요약
   editor/                  Monaco 에디터 래퍼(마커/테마 연동)
-  settings/                테마·에디터 설정 화면
+  settings/                테마·에디터 설정 화면, 공용 마크 리소스 라이브러리 섹션
   environment/             MC / Skript 버전 선택 팝오버
   catalog/                 버전·애드온 카탈로그, 호환성 판정, 애드온/구버전 문법 패턴
   skriptLanguage.ts        Skript 문법 하이라이트, 자동완성, hover, 확장 빠른 수정

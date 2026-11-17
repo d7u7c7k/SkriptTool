@@ -1,8 +1,9 @@
 import { Check, Palette, RotateCcw, Save, X } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { fontChoices } from "../theme/presets";
 import { useTheme } from "../theme/ThemeProvider";
 import type { ThemeColors } from "../theme/types";
+import { McLibrarySection } from "./McLibrarySection";
 import type { EditorSettings } from "./types";
 
 type Props = {
@@ -11,6 +12,10 @@ type Props = {
   settings: EditorSettings;
   onSettingsChange: (settings: EditorSettings) => void;
   onStatus: (message: string) => void;
+  /** 현재 프로젝트 MC 버전 (공용 리소스 라이브러리 연결 기준) */
+  minecraftVersion?: string | null;
+  /** 열릴 때 바로 보여 줄 섹션 */
+  focusSection?: "library" | null;
 };
 
 const colorFields: Array<{ key: keyof ThemeColors; label: string }> = [
@@ -27,8 +32,17 @@ function safeColor(value: string): string {
   return /^#[0-9a-fA-F]{6}$/.test(value) ? value : "#000000";
 }
 
-export function SettingsPanel({ open, onClose, settings, onSettingsChange, onStatus }: Props) {
+export function SettingsPanel({
+  open,
+  onClose,
+  settings,
+  onSettingsChange,
+  onStatus,
+  minecraftVersion = null,
+  focusSection = null
+}: Props) {
   const { theme, presets, activeId, custom, selectPreset, updateCustom, startCustomFrom, resetCustom, commitCustom } = useTheme();
+  const libraryRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!open) {
@@ -42,6 +56,16 @@ export function SettingsPanel({ open, onClose, settings, onSettingsChange, onSta
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [open, onClose]);
+
+  useEffect(() => {
+    if (!open || focusSection !== "library") {
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      libraryRef.current?.scrollIntoView({ block: "start" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open, focusSection]);
 
   if (!open) {
     return null;
@@ -257,6 +281,8 @@ export function SettingsPanel({ open, onClose, settings, onSettingsChange, onSta
               </span>
             </label>
           </section>
+
+          <McLibrarySection minecraftVersion={minecraftVersion} onStatus={onStatus} sectionRef={libraryRef} />
 
           <div className="settings-save-row">
             <span className="settings-save-hint">변경 사항은 자동 저장됩니다. 아래 버튼은 커스텀 테마를 확정합니다.</span>

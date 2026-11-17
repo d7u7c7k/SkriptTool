@@ -16,5 +16,11 @@ contextBridge.exposeInMainWorld("skriptApi", {
   openProjectAt: (targetPath: string) => ipcRenderer.invoke("project:openAt", targetPath),
   readProjectConfig: (rootPath: string) => ipcRenderer.invoke("project:readConfig", rootPath),
   writeProjectConfig: (rootPath: string, configText: string) =>
-    ipcRenderer.invoke("project:writeConfig", rootPath, configText)
+    ipcRenderer.invoke("project:writeConfig", rootPath, configText),
+  mcLibrary: {
+    getStatus: () => ipcRenderer.invoke("mcLibrary:getStatus"),
+    sync: (targetMcVersion: string | null) => ipcRenderer.invoke("mcLibrary:sync", targetMcVersion),
+    pickPack: () => ipcRenderer.invoke("mcLibrary:pickPack"),
+    removeVersion: (versionKey: string) => ipcRenderer.invoke("mcLibrary:removeVersion", versionKey)
+  }
 });

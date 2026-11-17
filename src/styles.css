@@ -2964,3 +2964,273 @@ kbd {
     max-height: 300px;
   }
 }
+
+/* ---------- 공용 마크 리소스 라이브러리 ---------- */
+
+.mc-library {
+  scroll-margin-top: 6px;
+}
+
+.mc-lib-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.mc-lib-status-mark {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--hover);
+  color: var(--muted);
+}
+
+.mc-lib-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mc-lib-status-text strong {
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.mc-lib-status-text p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.mc-lib-status.ok {
+  border-color: rgba(74, 222, 128, 0.32);
+  background: rgba(74, 222, 128, 0.06);
+}
+
+.mc-lib-status.ok .mc-lib-status-mark {
+  background: rgba(74, 222, 128, 0.14);
+  color: var(--ok);
+}
+
+.mc-lib-status.warn {
+  border-color: rgba(251, 191, 36, 0.3);
+  background: rgba(251, 191, 36, 0.05);
+}
+
+.mc-lib-status.warn .mc-lib-status-mark {
+  background: rgba(251, 191, 36, 0.12);
+  color: var(--warning);
+}
+
+.mc-lib-status.loading {
+  opacity: 0.75;
+}
+
+.mc-lib-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.mc-lib-actions .primary-btn,
+.mc-lib-actions .ghost-btn {
+  padding: 6px 11px;
+  font-size: 11.5px;
+}
+
+.mc-lib-actions .primary-btn:disabled,
+.mc-lib-actions .ghost-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.mc-lib-refresh {
+  margin-left: auto;
+}
+
+.mc-lib-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.mc-lib-notice {
+  padding: 7px 10px;
+  border: 1px solid var(--accent-line);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.mc-lib-list-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.mc-lib-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mc-lib-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg);
+}
+
+.mc-lib-row-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mc-lib-row-main strong {
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.mc-lib-row-sub {
+  grid-column: 1;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.mc-lib-badge {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.mc-lib-badge.current {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.mc-lib-remove {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  color: var(--muted);
+}
+
+.mc-lib-remove:hover {
+  color: var(--error);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+.mc-lib-empty {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.mc-lib-path {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 10px;
+}
+
+.mc-lib-path > span {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.mc-lib-path code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-family: var(--editor-font);
+  font-size: 10px;
+}
+
+.mc-lib-browser-note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--muted);
+}
+
+.mc-lib-browser-note svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.mc-lib-browser-note strong {
+  display: block;
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.mc-lib-browser-note p {
+  margin: 3px 0 0;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.mc-lib-confirm {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.mc-lib-confirm span {
+  margin-right: 2px;
+}
+
+.mini-btn.danger {
+  color: var(--error);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+.mini-btn.danger:hover {
+  background: rgba(248, 113, 113, 0.1);
+}

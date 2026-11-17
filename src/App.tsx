@@ -1,4 +1,5 @@
 import {
+  Blocks,
   Boxes,
   FilePlus2,
   Folder,
@@ -74,6 +75,12 @@ export function App() {
   const [addonsOpen, setAddonsOpen] = useState(false);
   const [focusAddonId, setFocusAddonId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<"library" | null>(null);
+
+  const openSettings = useCallback((section: "library" | null = null) => {
+    setSettingsSection(section);
+    setSettingsOpen(true);
+  }, []);
 
   const [editorSettings, setEditorSettings] = usePersistentState<EditorSettings>(
     "skripttool.editor.v2",
@@ -440,7 +447,7 @@ export function App() {
           onOpenRecent={(recent) => void handleOpenRecent(recent)}
           onRemoveRecent={(id) => setRecents((previous) => forgetProject(previous, id))}
           onBrowseExample={() => void handleBrowseExample()}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={() => openSettings(null)}
         />
       ) : (
         <div className="app-shell">
@@ -481,6 +488,7 @@ export function App() {
                     setFocusAddonId(null);
                     setAddonsOpen(true);
                   }}
+                  onOpenLibrary={() => openSettings("library")}
                 />
               )}
               <button
@@ -503,7 +511,10 @@ export function App() {
               >
                 <ListTree size={16} />
               </button>
-              <button className="icon-btn" title="설정" onClick={() => setSettingsOpen(true)}>
+              <button className="icon-btn" title="공용 마크 리소스 라이브러리" onClick={() => openSettings("library")}>
+                <Blocks size={16} />
+              </button>
+              <button className="icon-btn" title="설정" onClick={() => openSettings(null)}>
                 <SettingsIcon size={16} />
               </button>
             </div>
@@ -605,6 +616,9 @@ export function App() {
                   MC {environment?.minecraftVersion} · Skript {environment?.skriptVersion} · 애드온{" "}
                   {environment?.addons.length ?? 0}
                 </button>
+                <button className="status-item status-link" onClick={() => openSettings("library")} title="공용 마크 리소스 라이브러리">
+                  공용 리소스 라이브러리
+                </button>
                 <span className="status-item status-theme" title="현재 테마">
                   {theme.name}
                 </span>
@@ -616,10 +630,15 @@ export function App() {
 
       <SettingsPanel
         open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
+        onClose={() => {
+          setSettingsOpen(false);
+          setSettingsSection(null);
+        }}
         settings={editorSettings}
         onSettingsChange={setEditorSettings}
         onStatus={setStatus}
+        minecraftVersion={environment?.minecraftVersion ?? null}
+        focusSection={settingsSection}
       />
 
       <NewProjectDialog
