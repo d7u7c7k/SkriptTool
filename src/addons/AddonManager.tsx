@@ -1,6 +1,13 @@
 import { AlertTriangle, Check, Plus, Search, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { listAddonAvailability, type AddonAvailability, type AddonCategory, type EnvironmentConfig } from "../catalog";
+import {
+  inGameVersionLabel,
+  legacyAndLatestHint,
+  listAddonAvailability,
+  type AddonAvailability,
+  type AddonCategory,
+  type EnvironmentConfig
+} from "../catalog";
 
 type Props = {
   open: boolean;
@@ -72,6 +79,7 @@ export function AddonManager({ open, environment, configPathLabel, focusAddonId,
     return (
       entry.addon.name.toLowerCase().includes(needle) ||
       entry.addon.description.toLowerCase().includes(needle) ||
+      inGameVersionLabel(entry.addon).toLowerCase().includes(needle) ||
       (entry.addon.sample ?? "").toLowerCase().includes(needle)
     );
   });
@@ -103,6 +111,11 @@ export function AddonManager({ open, environment, configPathLabel, focusAddonId,
               <h2>확장 (애드온)</h2>
               <p>
                 이 프로젝트의 버전에 맞는 애드온만 추가할 수 있습니다. 추가·제거는 즉시 진단과 자동완성에 반영됩니다.
+                <br />
+                <span className="addon-legend">
+                  <span className="addon-legend-item">「인게임 MC …」 그 애드온이 실제 서버에서 도는 Minecraft 버전</span>
+                  <span className="addon-legend-item both">「구버전~최신 지원」 구버전부터 최신 버전까지 한 버전으로 커버</span>
+                </span>
               </p>
             </div>
           </div>
@@ -166,9 +179,23 @@ export function AddonManager({ open, environment, configPathLabel, focusAddonId,
                     <span className="addon-name">{entry.addon.name}</span>
                     <span className="addon-ver">{entry.latestVersion}</span>
                     <span className={`addon-cat ${entry.addon.category}`}>{categoryLabel[entry.addon.category]}</span>
+                    <span
+                      className="addon-mc"
+                      title={`인게임 지원 버전: Minecraft ${entry.addon.inGameVersions}`}
+                    >
+                      {inGameVersionLabel(entry.addon)}
+                    </span>
+                    {entry.addon.supportsLegacyAndLatest && (
+                      <span className="addon-both" title={legacyAndLatestHint(entry.addon)}>
+                        구버전~최신 지원
+                      </span>
+                    )}
                     {entry.addon.requires && <span className="addon-needs">+ {entry.addon.requires.join(", ")}</span>}
                   </div>
                   <p className="addon-desc">{entry.addon.description}</p>
+                  {legacyAndLatestHint(entry.addon) && (
+                    <p className="addon-legacy-note">{legacyAndLatestHint(entry.addon)}</p>
+                  )}
                   {entry.addon.sample && <code className="addon-sample">{entry.addon.sample}</code>}
                   {!entry.compatible && (
                     <div className="addon-reason">

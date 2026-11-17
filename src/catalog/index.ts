@@ -20,7 +20,10 @@ export {
   getCompatibleAddons,
   getCompatibleSkriptReleases,
   getRecommendedSkriptVersion,
+  inGameVersionLabel,
+  legacyAndLatestHint,
   listAddonAvailability,
+  parseInGameRange,
   resolveEnvironmentOnMinecraftChange,
   resolveEnvironmentOnSkriptChange,
   toggleAddon

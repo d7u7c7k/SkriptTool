@@ -6,6 +6,8 @@ import {
   listAddonAvailability,
   minecraftVersions,
   getRecommendedSkriptVersion,
+  inGameVersionLabel,
+  legacyAndLatestHint,
   resolveEnvironmentOnMinecraftChange,
   resolveEnvironmentOnSkriptChange,
   type EnvironmentConfig
@@ -216,10 +218,24 @@ export function NewProjectDialog({ open, canPickLocation, defaultName, onClose, 
                         <span className="np-addon-name">
                           {entry.addon.name}
                           <em>{entry.latestVersion}</em>
+                          <span
+                            className="addon-mc np-addon-mc"
+                            title={`인게임 지원 버전: Minecraft ${entry.addon.inGameVersions}`}
+                          >
+                            {inGameVersionLabel(entry.addon)}
+                          </span>
+                          {entry.addon.supportsLegacyAndLatest && (
+                            <span className="addon-both np-addon-both" title={legacyAndLatestHint(entry.addon)}>
+                              구버전~최신 지원
+                            </span>
+                          )}
                         </span>
                         <span className="np-addon-desc">
                           {entry.compatible ? entry.addon.description : entry.reasons.join(" · ")}
                         </span>
+                        {legacyAndLatestHint(entry.addon) && (
+                          <span className="np-addon-legacy">{legacyAndLatestHint(entry.addon)}</span>
+                        )}
                       </span>
                     </button>
                   );

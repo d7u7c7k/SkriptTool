@@ -18,6 +18,36 @@ export function getRecommendedSkriptVersion(minecraftVersion: MinecraftVersion):
   return compatible.find((release) => release.recommended)?.version ?? compatible[0]?.version ?? skriptReleases[0].version;
 }
 
+/** "1.8 ~ 1.21.8" 같은 인게임 지원 범위 문자열을 최소·최대 버전으로 나눕니다. */
+export function parseInGameRange(value: string): { min: string; max: string } {
+  const parts = value
+    .split("~")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const min = parts[0] ?? "";
+  return { min, max: parts[parts.length - 1] ?? min };
+}
+
+/** 카드에 그대로 보이는 인게임 지원 버전 문구 (예: "인게임 MC 1.19.4 ~ 1.21.8"). */
+export function inGameVersionLabel(addon: AddonPackage): string {
+  return `인게임 MC ${addon.inGameVersions}`;
+}
+
+/**
+ * 구버전·최신 겸용 애드온에 붙는 안내 문구.
+ * 겸용이 아니면 빈 문자열이라 그대로 조건부 렌더링에 써도 됩니다.
+ */
+export function legacyAndLatestHint(addon: AddonPackage): string {
+  if (!addon.supportsLegacyAndLatest) {
+    return "";
+  }
+  const { min, max } = parseInGameRange(addon.inGameVersions);
+  if (!min || min === max) {
+    return "구버전 서버부터 최신 버전 서버까지 같은 버전으로 쓸 수 있습니다.";
+  }
+  return `같은 버전 하나로 구버전 MC ${min} 서버부터 최신 MC ${max} 서버까지 쓸 수 있습니다.`;
+}
+
 function describeVersionRange(versions: string[] | undefined): string {
   if (!versions || versions.length === 0) {
     return "";
