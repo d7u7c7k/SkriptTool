@@ -1,9 +1,7 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import {
-  createWelcomeWorkspace,
   createWorkspaceFile,
   normalizeSkriptFileName,
-  openWorkspaceFolder,
   readWorkspaceFile,
   refreshWorkspace,
   saveWorkspaceFileAs,
@@ -23,32 +21,50 @@ function newFileTemplate(relativePath: string): string {
   return `# ${name}\n# 여기에 Skript 코드를 작성하세요. 오른쪽 "코드 흐름"에서 실행 순서를 확인할 수 있습니다.\n\n`;
 }
 
-/** 새 워크스페이스에 속한 탭인지 확인합니다. (저장하지 않은 탭은 항상 유지) */
-function isTabInsideRoot(tabPath: string, rootPath: string): boolean {
-  if (rootPath.startsWith("memory://")) {
-    return tabPath.startsWith("memory://");
-  }
-  if (rootPath.startsWith("browser://")) {
-    return tabPath.startsWith("browser://");
-  }
-  if (tabPath === rootPath) {
-    return true;
-  }
-  const base = /[\\/]$/.test(rootPath) ? rootPath : `${rootPath}/`;
-  const baseAlt = /[\\/]$/.test(rootPath) ? rootPath : `${rootPath}\\`;
-  return tabPath.startsWith(base) || tabPath.startsWith(baseAlt);
-}
-
 export function useWorkspace(onStatus: (message: string) => void) {
-  const welcome = useMemo(() => createWelcomeWorkspace(), []);
-  const [workspace, setWorkspace] = useState<WorkspaceState>(welcome.state);
-  const [tabs, setTabs] = useState<OpenTab[]>(() => (welcome.initialFile ? [welcome.initialFile] : []));
-  const [activePath, setActivePath] = useState<string | null>(welcome.initialFile?.path ?? null);
+  const [workspace, setWorkspace] = useState<WorkspaceState | null>(null);
+  const [tabs, setTabs] = useState<OpenTab[]>([]);
+  const [activePath, setActivePath] = useState<string | null>(null);
 
   const activeTab = tabs.find((tab) => tab.path === activePath) ?? null;
 
+  /** 새 프로젝트/폴더로 전환합니다. 이전 프로젝트의 탭은 모두 닫습니다. */
+  const loadWorkspace = useCallback(async (next: WorkspaceState, preferredRelativePath?: string | null) => {
+    const file =
+      (preferredRelativePath ? findFileByRelativePath(next.tree, preferredRelativePath) : undefined) ?? firstFile(next.tree);
+    setWorkspace(next);
+    if (!file) {
+      setTabs([]);
+      setActivePath(null);
+      return null;
+    }
+    const content = await readWorkspaceFile(next, file.path);
+    setTabs([
+      {
+        path: file.path,
+        name: file.name,
+        relativePath: file.relativePath,
+        content,
+        savedContent: content
+      }
+    ]);
+    setActivePath(file.path);
+    return file;
+  }, []);
+
+  const closeWorkspace = useCallback(() => {
+    setWorkspace(null);
+    setTabs([]);
+    setActivePath(null);
+  }, []);
+
+  const hasDirtyTabs = tabs.some((tab) => isTabDirty(tab));
+
   const openFile = useCallback(
     async (node: FileNode) => {
+      if (!workspace) {
+        return;
+      }
       if (tabs.some((tab) => tab.path === node.path)) {
         setActivePath(node.path);
         return;
@@ -77,47 +93,10 @@ export function useWorkspace(onStatus: (message: string) => void) {
     [onStatus, tabs, workspace]
   );
 
-  const openFolder = useCallback(async () => {
-    try {
-      const next = await openWorkspaceFolder();
-      if (!next) {
-        return;
-      }
-      const file = firstFile(next.tree);
-      let content: string | null = null;
-      if (file) {
-        content = await readWorkspaceFile(next, file.path);
-      }
-
-      setWorkspace(next);
-      setTabs((previous) => {
-        const kept = previous.filter((tab) => isTabInsideRoot(tab.path, next.root.path) || isTabDirty(tab));
-        if (file && content !== null && !kept.some((tab) => tab.path === file.path)) {
-          kept.push({
-            path: file.path,
-            name: file.name,
-            relativePath: file.relativePath,
-            content,
-            savedContent: content
-          });
-        }
-        return kept;
-      });
-
-      if (file) {
-        setActivePath(file.path);
-        onStatus(`${next.root.name} 폴더를 열었습니다.`);
-      } else {
-        const fallback = tabs.find((tab) => isTabDirty(tab))?.path ?? null;
-        setActivePath(fallback);
-        onStatus(`${next.root.name} 폴더를 열었지만 .sk 파일이 없습니다.`);
-      }
-    } catch (error) {
-      onStatus(`폴더 열기 실패: ${describeError(error)}`);
-    }
-  }, [onStatus, tabs]);
-
   const refresh = useCallback(async () => {
+    if (!workspace) {
+      return;
+    }
     try {
       const next = await refreshWorkspace(workspace);
       setWorkspace(next);
@@ -129,6 +108,9 @@ export function useWorkspace(onStatus: (message: string) => void) {
 
   const createFile = useCallback(
     async (rawName: string): Promise<boolean> => {
+      if (!workspace) {
+        return false;
+      }
       try {
         const relativePath = normalizeSkriptFileName(rawName);
         if (findFileByRelativePath(workspace.tree, relativePath)) {
@@ -161,6 +143,9 @@ export function useWorkspace(onStatus: (message: string) => void) {
 
   const saveTab = useCallback(
     async (path?: string): Promise<boolean> => {
+      if (!workspace) {
+        return false;
+      }
       const tab = tabs.find((item) => item.path === (path ?? activePath));
       if (!tab) {
         return false;
@@ -182,7 +167,7 @@ export function useWorkspace(onStatus: (message: string) => void) {
 
   const saveTabAs = useCallback(async () => {
     const tab = activeTab;
-    if (!tab) {
+    if (!tab || !workspace) {
       return;
     }
     try {
@@ -235,8 +220,10 @@ export function useWorkspace(onStatus: (message: string) => void) {
     tabs,
     activeTab,
     activePath,
+    hasDirtyTabs,
+    loadWorkspace,
+    closeWorkspace,
     openFile,
-    openFolder,
     refresh,
     createFile,
     saveTab,

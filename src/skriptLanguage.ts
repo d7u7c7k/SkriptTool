@@ -1,7 +1,23 @@
 import type { Monaco } from "@monaco-editor/react";
 import type { IRange, languages } from "monaco-editor";
+import { findAddonPackage } from "./catalog/addons";
+import { addonSnippets } from "./catalog/addonSnippets";
 
 const LANG_ID = "skript";
+
+/** 현재 프로젝트에 추가된 애드온 (자동완성에 반영) */
+let activeAddonIds: string[] = [];
+
+export function setCompletionEnvironment(addons: string[]) {
+  activeAddonIds = [...addons];
+}
+
+/** Monaco 빠른 수정(코드 액션)에서 "확장에서 추가"를 눌렀을 때 실행할 동작 */
+let addonFixHandler: ((addonId: string) => void) | null = null;
+
+export function setAddonFixHandler(handler: ((addonId: string) => void) | null) {
+  addonFixHandler = handler;
+}
 
 const eventSnippets: Array<{ label: string; insert: string; detail: string }> = [
   { label: "on join:", insert: "on join:\n  ${0:send \"&a환영합니다\" to player}", detail: "플레이어 접속" },
@@ -305,6 +321,16 @@ export function registerSkriptLanguage(monaco: Monaco) {
       addGroup(structureSnippets, "구조");
       addGroup(effectSnippets, "효과");
 
+      // 프로젝트에 추가된 애드온의 문법만 자동완성에 넣습니다.
+      for (const addonId of activeAddonIds) {
+        const snippets = addonSnippets[addonId];
+        if (!snippets || snippets.length === 0) {
+          continue;
+        }
+        const addonName = findAddonPackage(addonId)?.name ?? addonId;
+        addGroup(snippets, `확장 · ${addonName}`);
+      }
+
       return { suggestions };
     }
   });
@@ -370,6 +396,43 @@ export function registerSkriptLanguage(monaco: Monaco) {
         },
         contents: [{ value: doc }]
       };
+    }
+  });
+
+  // 애드온 누락 진단의 빠른 수정: "확장에서 SkBee 추가"
+  monaco.editor.registerCommand("skripttool.addAddon", (_accessor, addonId: unknown) => {
+    if (typeof addonId === "string" && addonId) {
+      addonFixHandler?.(addonId);
+    }
+  });
+
+  monaco.languages.registerCodeActionProvider(LANG_ID, {
+    provideCodeActions: (_model, _range, context) => {
+      const seen = new Set<string>();
+      const actions: languages.CodeAction[] = [];
+      for (const marker of context.markers) {
+        const code = typeof marker.code === "string" ? marker.code : marker.code?.value;
+        if (!code || !code.startsWith("addon:")) {
+          continue;
+        }
+        const addonId = code.slice("addon:".length);
+        if (seen.has(addonId)) {
+          continue;
+        }
+        seen.add(addonId);
+        const addonName = findAddonPackage(addonId)?.name ?? addonId;
+        actions.push({
+          title: `확장에서 ${addonName} 추가`,
+          kind: "quickfix",
+          diagnostics: [marker],
+          command: {
+            id: "skripttool.addAddon",
+            title: `${addonName} 추가`,
+            arguments: [addonId]
+          }
+        });
+      }
+      return { actions, dispose: () => undefined };
     }
   });
 }

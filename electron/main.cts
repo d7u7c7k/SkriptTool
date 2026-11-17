@@ -6,6 +6,8 @@ import path from "node:path";
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 const SKIP_DIRECTORIES = new Set(["node_modules", "dist", "dist-electron", "release", ".git", ".vscode", ".idea"]);
 const MAX_DEPTH = 6;
+const CONFIG_FILE = ".skripttool.json";
+const MAIN_FILE = "main.sk";
 
 type FileNodeDto = { kind: "file"; name: string; path: string; relativePath: string };
 type FolderNodeDto = {
@@ -92,6 +94,29 @@ async function snapshot(rootPath: string) {
   return { root: { name: path.basename(rootPath), path: rootPath }, tree };
 }
 
+async function readConfigText(rootPath: string): Promise<string | null> {
+  try {
+    return await fs.readFile(path.join(rootPath, CONFIG_FILE), "utf8");
+  } catch {
+    return null;
+  }
+}
+
+/** 프로젝트 폴더 이름으로 쓸 수 없는 문자를 제거합니다. 경로 탈출도 함께 막습니다. */
+function sanitizeFolderName(input: string): string {
+  const cleaned = input
+    .trim()
+    .replace(/[\\/:*?"<>|]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\.+/, "")
+    .trim();
+  if (!cleaned) {
+    throw new Error("프로젝트 이름에 쓸 수 있는 글자가 없습니다. 다른 이름을 입력해 주세요.");
+  }
+  return cleaned.slice(0, 80);
+}
+
 function createWindow() {
   const window = new BrowserWindow({
     width: 1500,
@@ -118,6 +143,103 @@ function createWindow() {
     void window.loadFile(path.join(__dirname, "../dist/index.html"));
   }
 }
+
+ipcMain.handle("project:pickParent", async () => {
+  const result = await dialog.showOpenDialog({
+    title: "새 프로젝트를 만들 상위 폴더 선택",
+    buttonLabel: "이 폴더 선택",
+    properties: ["openDirectory", "createDirectory"]
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+  return path.resolve(result.filePaths[0]);
+});
+
+ipcMain.handle(
+  "project:create",
+  async (_event, parentPath: string, folderName: string, configText: string, mainContent: string) => {
+    const parent = path.resolve(String(parentPath));
+    const parentStats = await fs.stat(parent).catch(() => null);
+    if (!parentStats || !parentStats.isDirectory()) {
+      throw new Error("상위 폴더를 찾을 수 없습니다. 저장 위치를 다시 선택해 주세요.");
+    }
+
+    const folder = sanitizeFolderName(String(folderName));
+    const root = path.join(parent, folder);
+    if (!isInside(parent, root) || root === parent) {
+      throw new Error("프로젝트 폴더 경로가 올바르지 않습니다.");
+    }
+
+    const existing = await fs.stat(root).catch(() => null);
+    if (existing) {
+      if (!existing.isDirectory()) {
+        throw new Error(`같은 이름의 파일이 이미 있습니다: ${folder}`);
+      }
+      const entries = await fs.readdir(root);
+      if (entries.length > 0) {
+        throw new Error(`"${folder}" 폴더가 이미 있고 비어 있지 않습니다. 다른 이름을 써 주세요.`);
+      }
+    } else {
+      await fs.mkdir(root, { recursive: true });
+    }
+
+    await fs.writeFile(path.join(root, CONFIG_FILE), configText, "utf8");
+    await fs.writeFile(path.join(root, MAIN_FILE), mainContent, "utf8");
+
+    allowedRoots.add(root);
+    const tree = await buildTree(root);
+    return { root: { name: path.basename(root), path: root }, tree, config: configText };
+  }
+);
+
+ipcMain.handle("project:open", async () => {
+  const result = await dialog.showOpenDialog({
+    title: "Skript 프로젝트 폴더 열기",
+    buttonLabel: "프로젝트 열기",
+    properties: ["openDirectory"]
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  const rootPath = path.resolve(result.filePaths[0]);
+  allowedRoots.add(rootPath);
+  const tree = await buildTree(rootPath);
+  return {
+    root: { name: path.basename(rootPath), path: rootPath },
+    tree,
+    config: await readConfigText(rootPath)
+  };
+});
+
+ipcMain.handle("project:openAt", async (_event, targetPath: string) => {
+  // 최근 프로젝트 목록에서 바로 여는 경로입니다. 렌더러는 로컬 앱 코드뿐이고,
+  // 실제로 존재하는 폴더만 열리도록 여기서 한 번 더 확인합니다.
+  const rootPath = path.resolve(String(targetPath));
+  const stats = await fs.stat(rootPath).catch(() => null);
+  if (!stats || !stats.isDirectory()) {
+    throw new Error("프로젝트 폴더를 찾을 수 없습니다. 이동되었거나 삭제되었을 수 있습니다.");
+  }
+  allowedRoots.add(rootPath);
+  const tree = await buildTree(rootPath);
+  return {
+    root: { name: path.basename(rootPath), path: rootPath },
+    tree,
+    config: await readConfigText(rootPath)
+  };
+});
+
+ipcMain.handle("project:readConfig", async (_event, rootPath: string) => {
+  const root = requireRoot(rootPath);
+  return readConfigText(root);
+});
+
+ipcMain.handle("project:writeConfig", async (_event, rootPath: string, configText: string) => {
+  const root = requireRoot(rootPath);
+  await fs.writeFile(path.join(root, CONFIG_FILE), configText, "utf8");
+});
 
 ipcMain.handle("workspace:openFolder", async () => {
   const result = await dialog.showOpenDialog({

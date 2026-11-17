@@ -66,8 +66,32 @@ on right click with compass:
       send "&7같은 월드에 있는 플레이어: %loop-player's name%" to player
 `;
 
+const diagnosticsDemo = `# 예제 · 진단 데모 (일부러 오류와 경고를 넣은 파일입니다)
+# 빨간줄 = 문법 오류, 노란줄 = 예전 문법 / 프로젝트에 없는 애드온 문법
+# 아래 오류는 앱이 어떻게 잡아 주는지 보여 주기 위한 예시입니다.
+
+on join:
+  send "&a환영합니다, %player's name%님" to player
+
+on rightclick:
+  send "&7우클릭을 감지했습니다." to player
+
+on break of stone
+  send "&7돌을 캤습니다." to player
+
+command /nbt:
+  trigger:
+    set {_data} to nbt of player
+    send "&bNBT: %{_data}%" to player
+
+# SkBee를 확장에서 추가하면 아래 두 줄의 노란줄이 사라집니다.
+set action bar of player to "&e안녕하세요"
+format slot 0 of player with stone
+`;
+
 export const sampleProject: SampleFile[] = [
   { relativePath: "hello.sk", content: hello },
   { relativePath: "shop.sk", content: shop },
-  { relativePath: "examples/optimize.sk", content: optimize }
+  { relativePath: "examples/optimize.sk", content: optimize },
+  { relativePath: "examples/diagnostics.sk", content: diagnosticsDemo }
 ];

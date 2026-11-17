@@ -1,28 +1,21 @@
-import { Check, ChevronDown, Cpu } from "lucide-react";
+import { Boxes, ChevronDown, Cpu } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
-  addonPackages,
-  getCompatibleAddons,
+  findAddonPackage,
   getCompatibleSkriptReleases,
   minecraftVersions,
   resolveEnvironmentOnMinecraftChange,
   resolveEnvironmentOnSkriptChange,
-  type CompatibleAddon,
-  type EnvironmentConfig,
-  type InstalledAddon
+  type EnvironmentConfig
 } from "../catalog";
 
 type Props = {
   environment: EnvironmentConfig;
-  onChange: (environment: EnvironmentConfig) => void;
-  onStatus: (message: string) => void;
+  onChange: (environment: EnvironmentConfig, note: string) => void;
+  onOpenAddons: () => void;
 };
 
-function installedFor(environment: EnvironmentConfig, addonId: string): InstalledAddon | undefined {
-  return environment.addons.find((addon) => addon.packageId === addonId);
-}
-
-export function EnvironmentMenu({ environment, onChange, onStatus }: Props) {
+export function EnvironmentMenu({ environment, onChange, onOpenAddons }: Props) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
@@ -49,40 +42,25 @@ export function EnvironmentMenu({ environment, onChange, onStatus }: Props) {
   }, [open]);
 
   const skriptReleases = getCompatibleSkriptReleases(environment.minecraftVersion);
-  const compatibleAddons = getCompatibleAddons(environment.minecraftVersion, environment.skriptVersion);
 
   const changeMinecraft = (version: string) => {
-    onChange(resolveEnvironmentOnMinecraftChange(environment, version));
-    onStatus(`Minecraft ${version} 기준으로 환경을 맞췄습니다.`);
+    const { environment: next, dropped } = resolveEnvironmentOnMinecraftChange(environment, version);
+    const note =
+      dropped.length > 0
+        ? `Minecraft ${version} · Skript ${next.skriptVersion}로 맞추고, 호환되지 않는 ${dropped
+            .map((addon) => addon.name)
+            .join(", ")}를 제거했습니다.`
+        : `Minecraft ${version} · Skript ${next.skriptVersion} 기준으로 맞췄습니다.`;
+    onChange(next, note);
   };
 
   const changeSkript = (version: string) => {
-    onChange(resolveEnvironmentOnSkriptChange(environment, version));
-    onStatus(`Skript ${version} 기준으로 환경을 맞췄습니다.`);
-  };
-
-  const toggleAddon = (addon: CompatibleAddon) => {
-    const installed = installedFor(environment, addon.id);
-    if (installed) {
-      onChange({ ...environment, addons: environment.addons.filter((entry) => entry.packageId !== addon.id) });
-      onStatus(`${addon.name} 제거`);
-      return;
-    }
-    const next: InstalledAddon = {
-      id: `${addon.id}-${Date.now()}`,
-      packageId: addon.id,
-      name: addon.name,
-      version: addon.availableVersions[0] ?? "latest"
-    };
-    onChange({ ...environment, addons: [...environment.addons, next] });
-    onStatus(`${addon.name} ${next.version} 추가`);
-  };
-
-  const changeAddonVersion = (packageId: string, version: string) => {
-    onChange({
-      ...environment,
-      addons: environment.addons.map((addon) => (addon.packageId === packageId ? { ...addon, version } : addon))
-    });
+    const { environment: next, dropped } = resolveEnvironmentOnSkriptChange(environment, version);
+    const note =
+      dropped.length > 0
+        ? `Skript ${version}로 바꾸고, 호환되지 않는 ${dropped.map((addon) => addon.name).join(", ")}를 제거했습니다.`
+        : `Skript ${version} 기준으로 맞췄습니다.`;
+    onChange(next, note);
   };
 
   return (
@@ -99,8 +77,8 @@ export function EnvironmentMenu({ environment, onChange, onStatus }: Props) {
       {open && (
         <div className="env-popover">
           <div className="env-popover-head">
-            <span>실행 환경</span>
-            <span className="env-hint">프로젝트 기준 버전</span>
+            <span>프로젝트 환경</span>
+            <span className="env-hint">.skripttool.json에 저장</span>
           </div>
 
           <label className="field">
@@ -127,42 +105,31 @@ export function EnvironmentMenu({ environment, onChange, onStatus }: Props) {
           </label>
 
           <div className="env-addon-head">
-            <span>애드온</span>
-            <span className="env-hint">{compatibleAddons.length}개 호환</span>
+            <span>설치된 애드온</span>
+            <span className="env-hint">{environment.addons.length}개</span>
           </div>
-          <div className="env-addon-list">
-            {compatibleAddons.length === 0 && <div className="env-empty">이 조합에서 사용할 수 있는 애드온이 없습니다.</div>}
-            {compatibleAddons.map((addon) => {
-              const installed = installedFor(environment, addon.id);
+
+          <div className="env-addon-summary">
+            {environment.addons.length === 0 && <span className="env-empty">설치된 애드온이 없습니다.</span>}
+            {environment.addons.map((id) => {
+              const addon = findAddonPackage(id);
+              if (!addon) {
+                return null;
+              }
               return (
-                <div key={addon.id} className={`env-addon-row ${installed ? "installed" : ""}`}>
-                  <button className="addon-check" onClick={() => toggleAddon(addon)} title={addon.description}>
-                    {installed ? <Check size={12} /> : null}
-                  </button>
-                  <div className="addon-meta">
-                    <span className="addon-name">{addon.name}</span>
-                    <span className="addon-desc">{addon.description}</span>
-                  </div>
-                  {installed ? (
-                    <select
-                      className="addon-version"
-                      value={installed.version}
-                      onChange={(event) => changeAddonVersion(addon.id, event.target.value)}
-                    >
-                      {addon.availableVersions.map((version) => (
-                        <option key={version} value={version}>
-                          {version}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className="addon-version muted">{addon.availableVersions[0]}</span>
-                  )}
-                </div>
+                <span className="env-addon-pill" key={id} title={addon.description}>
+                  {addon.name}
+                </span>
               );
             })}
           </div>
-          <p className="env-note">{addonPackages.length}개 애드온 데이터에서 호환되는 항목만 표시합니다.</p>
+
+          <button className="ghost-btn env-open-addons" onClick={() => {
+            setOpen(false);
+            onOpenAddons();
+          }}>
+            <Boxes size={14} /> 확장 관리 열기
+          </button>
         </div>
       )}
     </div>

@@ -1,3 +1,4 @@
+import { PROJECT_CONFIG_FILE } from "../project/types";
 import { pickDirectory, pickSaveFile, supportsDirectoryPicker, supportsSaveFilePicker, type DirectoryHandleLike, type FileHandleLike } from "./fsAccess";
 import { sampleProject } from "./sampleProject";
 import {
@@ -16,7 +17,21 @@ const BROWSER_SCHEME = "browser://";
 const MEMORY_ROOT_PATH = `${MEMORY_SCHEME}/`;
 const SKIP_FOLDERS = new Set(["node_modules", "dist", "dist-electron", "release", ".git", ".vscode"]);
 
-const memoryFiles = new Map<string, string>(sampleProject.map((file) => [file.relativePath, file.content]));
+type MemoryProject = {
+  rootName: string;
+  files: Map<string, string>;
+  configText: string | null;
+};
+
+function freshMemoryProject(): MemoryProject {
+  return {
+    rootName: "예제 프로젝트",
+    files: new Map(sampleProject.map((file) => [file.relativePath, file.content])),
+    configText: null
+  };
+}
+
+let memoryProject: MemoryProject = freshMemoryProject();
 let browserRootHandle: DirectoryHandleLike | null = null;
 const browserSavedHandles = new Map<string, FileHandleLike>();
 
@@ -90,24 +105,49 @@ function buildTree(entries: TreeEntry[], pathFor: (relativePath: string) => stri
   return convert(root, "");
 }
 
-export function createWelcomeWorkspace(): { state: WorkspaceState; initialFile: OpenTab | null } {
+function memoryWorkspace(): WorkspaceState {
   const tree = buildTree(
-    [...memoryFiles.keys()].map((relativePath) => ({ relativePath })),
+    [...memoryProject.files.keys()].map((relativePath) => ({ relativePath })),
     memoryPath
   );
-  const root = { name: "예제 프로젝트", path: MEMORY_ROOT_PATH };
-  const file = firstFile(tree);
-  const initialFile = file
-    ? {
-        path: file.path,
-        name: file.name,
-        relativePath: file.relativePath,
-        content: memoryFiles.get(file.relativePath) ?? "",
-        savedContent: memoryFiles.get(file.relativePath) ?? ""
-      }
-    : null;
+  return { kind: "memory", root: { name: memoryProject.rootName, path: MEMORY_ROOT_PATH }, tree };
+}
 
-  return { state: { kind: "memory", root, tree }, initialFile };
+function firstTabFor(state: WorkspaceState, content: string, file: FileNode): OpenTab {
+  return {
+    path: file.path,
+    name: file.name,
+    relativePath: file.relativePath,
+    content,
+    savedContent: content
+  };
+}
+
+/** 예제 워크스페이스(메모리)를 새로 만듭니다. */
+export function createExampleWorkspace(configText: string | null): { state: WorkspaceState; initialFile: OpenTab | null } {
+  memoryProject = freshMemoryProject();
+  memoryProject.configText = configText;
+  const state = memoryWorkspace();
+  const file = firstFile(state.tree);
+  const initialFile = file ? firstTabFor(state, memoryProject.files.get(file.relativePath) ?? "", file) : null;
+  return { state, initialFile };
+}
+
+/** 브라우저 폴백·예제용 인메모리 프로젝트를 만듭니다. */
+export function createMemoryProject(
+  name: string,
+  mainContent: string,
+  configText: string
+): { state: WorkspaceState; initialFile: OpenTab | null } {
+  memoryProject = {
+    rootName: name,
+    files: new Map([["main.sk", mainContent]]),
+    configText
+  };
+  const state = memoryWorkspace();
+  const file = firstFile(state.tree);
+  const initialFile = file ? firstTabFor(state, memoryProject.files.get(file.relativePath) ?? "", file) : null;
+  return { state, initialFile };
 }
 
 export function detectWorkspaceKind(): WorkspaceState["kind"] {
@@ -147,21 +187,85 @@ async function scanBrowserDirectory(handle: DirectoryHandleLike): Promise<Worksp
   };
 }
 
-export async function openWorkspaceFolder(): Promise<WorkspaceState | null> {
+async function readBrowserConfigText(handle: DirectoryHandleLike): Promise<string | null> {
+  try {
+    const fileHandle = await handle.getFileHandle(PROJECT_CONFIG_FILE, { create: false });
+    const file = await fileHandle.getFile();
+    return await file.text();
+  } catch {
+    return null;
+  }
+}
+
+async function writeBrowserConfigText(handle: DirectoryHandleLike, text: string): Promise<void> {
+  const fileHandle = await handle.getFileHandle(PROJECT_CONFIG_FILE, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(text);
+  await writable.close();
+}
+
+export type OpenedProject = {
+  state: WorkspaceState;
+  /** .skripttool.json 원문. 없으면 null (기본값으로 열고 저장하면 됩니다) */
+  configText: string | null;
+};
+
+/** 폴더 선택 다이얼로그로 프로젝트를 엽니다. */
+export async function openProjectFolder(): Promise<OpenedProject | null> {
   const api = window.skriptApi;
   if (api) {
-    const snapshot = await api.openFolder();
-    return snapshot ? { ...snapshot, kind: "electron" } : null;
+    const opened = await api.openProject();
+    if (!opened) {
+      return null;
+    }
+    return {
+      state: { kind: "electron", root: opened.root, tree: opened.tree },
+      configText: opened.config
+    };
   }
 
   if (!supportsDirectoryPicker()) {
-    throw new Error("이 환경에서는 폴더 열기를 지원하지 않습니다. 예제 워크스페이스를 사용합니다.");
+    throw new Error("이 환경에서는 폴더 열기를 지원하지 않습니다. 새 프로젝트를 만들거나 예제 워크스페이스를 사용하세요.");
   }
 
   const handle = await pickDirectory();
   browserRootHandle = handle;
   const snapshot = await scanBrowserDirectory(handle);
-  return { ...snapshot, kind: "browser" };
+  return {
+    state: { ...snapshot, kind: "browser" },
+    configText: await readBrowserConfigText(handle)
+  };
+}
+
+/** 최근 프로젝트 목록에서 경로로 바로 엽니다. (Electron) */
+export async function openProjectAtPath(targetPath: string): Promise<OpenedProject> {
+  const api = window.skriptApi;
+  if (!api) {
+    throw new Error("경로로 프로젝트를 여는 기능은 데스크톱 앱에서만 지원합니다.");
+  }
+  const opened = await api.openProjectAt(targetPath);
+  return {
+    state: { kind: "electron", root: opened.root, tree: opened.tree },
+    configText: opened.config
+  };
+}
+
+/** Electron: 선택한 상위 폴더 아래에 프로젝트 폴더와 기본 파일을 만듭니다. */
+export async function createProjectOnDisk(
+  parentPath: string,
+  folderName: string,
+  configText: string,
+  mainContent: string
+): Promise<OpenedProject> {
+  const api = window.skriptApi;
+  if (!api) {
+    throw new Error("폴더에 프로젝트를 만드는 기능은 데스크톱 앱에서만 지원합니다.");
+  }
+  const created = await api.createProject(parentPath, folderName, configText, mainContent);
+  return {
+    state: { kind: "electron", root: created.root, tree: created.tree },
+    configText
+  };
 }
 
 export async function refreshWorkspace(workspace: WorkspaceState): Promise<WorkspaceState> {
@@ -177,11 +281,35 @@ export async function refreshWorkspace(workspace: WorkspaceState): Promise<Works
     return { ...snapshot, kind: "browser" };
   }
 
-  const tree = buildTree(
-    [...memoryFiles.keys()].map((relativePath) => ({ relativePath })),
-    memoryPath
-  );
-  return { ...workspace, tree };
+  return memoryWorkspace();
+}
+
+export async function readProjectConfigText(workspace: WorkspaceState): Promise<string | null> {
+  if (workspace.kind === "electron" && window.skriptApi) {
+    return window.skriptApi.readProjectConfig(workspace.root.path);
+  }
+  if (workspace.kind === "browser") {
+    if (!browserRootHandle) {
+      return null;
+    }
+    return readBrowserConfigText(browserRootHandle);
+  }
+  return memoryProject.configText;
+}
+
+export async function writeProjectConfigText(workspace: WorkspaceState, text: string): Promise<void> {
+  if (workspace.kind === "electron" && window.skriptApi) {
+    await window.skriptApi.writeProjectConfig(workspace.root.path, text);
+    return;
+  }
+  if (workspace.kind === "browser") {
+    if (!browserRootHandle) {
+      throw new Error("폴더 연결이 만료되었습니다. 폴더를 다시 열어 주세요.");
+    }
+    await writeBrowserConfigText(browserRootHandle, text);
+    return;
+  }
+  memoryProject.configText = text;
 }
 
 async function resolveBrowserFile(relativePath: string, create: boolean) {
@@ -210,7 +338,7 @@ export async function readWorkspaceFile(workspace: WorkspaceState, path: string)
     return file.text();
   }
   const relativePath = relativePathFromMemory(path);
-  const content = memoryFiles.get(relativePath);
+  const content = memoryProject.files.get(relativePath);
   if (content === undefined) {
     throw new Error("파일을 찾을 수 없습니다.");
   }
@@ -230,7 +358,7 @@ export async function writeWorkspaceFile(workspace: WorkspaceState, path: string
     await writable.close();
     return;
   }
-  memoryFiles.set(relativePathFromMemory(path), content);
+  memoryProject.files.set(relativePathFromMemory(path), content);
 }
 
 export function normalizeSkriptFileName(input: string): string {
@@ -268,10 +396,10 @@ export async function createWorkspaceFile(
     return { path: `${BROWSER_SCHEME}${relativePath}`, name, relativePath, content };
   }
 
-  if (memoryFiles.has(relativePath)) {
+  if (memoryProject.files.has(relativePath)) {
     throw new Error("이미 같은 이름의 파일이 있습니다.");
   }
-  memoryFiles.set(relativePath, content);
+  memoryProject.files.set(relativePath, content);
   return { path: memoryPath(relativePath), name, relativePath, content };
 }
 
@@ -294,8 +422,8 @@ export async function saveWorkspaceFileAs(
     return { path: savedPath, name: handle.name };
   }
 
-  // 마지막 폴백: 예제 워크스페이스에 내보내기 폴더로 저장
+  // 마지막 폴백: 현재 메모리 프로젝트의 exports 폴더로 저장
   const relativePath = `exports/${suggestedName.endsWith(".sk") ? suggestedName : `${suggestedName}.sk`}`;
-  memoryFiles.set(relativePath, content);
+  memoryProject.files.set(relativePath, content);
   return { path: memoryPath(relativePath), name: relativePath.split("/").pop() ?? suggestedName, relativePath };
 }

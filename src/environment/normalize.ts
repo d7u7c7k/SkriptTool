@@ -1,13 +1,16 @@
 import {
-  addonPackages,
-  getCompatibleAddons,
+  findAddonPackage,
+  getAddonAvailability,
   getCompatibleSkriptReleases,
   getRecommendedSkriptVersion,
   minecraftVersions,
-  type EnvironmentConfig,
-  type InstalledAddon
+  type EnvironmentConfig
 } from "../catalog";
 
+/**
+ * 저장된 환경(프로젝트 설정)을 카탈로그 기준으로 검증합니다.
+ * 알 수 없는 버전이나 지금 조합에 없는 애드온은 조용히 걸러냅니다.
+ */
 export function normalizeEnvironment(value: unknown): EnvironmentConfig | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -23,33 +26,20 @@ export function normalizeEnvironment(value: unknown): EnvironmentConfig | null {
       ? candidate.skriptVersion
       : getRecommendedSkriptVersion(minecraftVersion);
 
-  const compatible = getCompatibleAddons(minecraftVersion, skriptVersion);
-  const allowed = new Map(compatible.map((addon) => [addon.id, addon]));
-
   const rawAddons = Array.isArray(candidate.addons) ? candidate.addons : [];
-  const addons: InstalledAddon[] = [];
+  const addons: string[] = [];
   for (const raw of rawAddons) {
-    if (!raw || typeof raw !== "object") {
+    if (typeof raw !== "string" || addons.includes(raw)) {
       continue;
     }
-    const installed = raw as Partial<InstalledAddon>;
-    if (typeof installed.packageId !== "string") {
-      continue;
-    }
-    const addon = allowed.get(installed.packageId);
+    const addon = findAddonPackage(raw);
     if (!addon) {
       continue;
     }
-    const version =
-      typeof installed.version === "string" && addon.availableVersions.includes(installed.version)
-        ? installed.version
-        : addon.availableVersions[0] ?? "latest";
-    addons.push({
-      id: typeof installed.id === "string" ? installed.id : `${addon.id}-${Date.now()}`,
-      packageId: addon.id,
-      name: addonPackages.find((entry) => entry.id === addon.id)?.name ?? addon.name,
-      version
-    });
+    if (!getAddonAvailability(addon, minecraftVersion, skriptVersion).compatible) {
+      continue;
+    }
+    addons.push(raw);
   }
 
   return { minecraftVersion, skriptVersion, addons };

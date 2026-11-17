@@ -67,7 +67,7 @@ export function SkriptEditor({ tab, theme, settings, diagnostics, onContentChang
           .join("\n"),
         severity: markerSeverity(monaco, item.severity),
         source: "SkriptTool",
-        code: item.category
+        code: item.addonId ? `addon:${item.addonId}` : item.category
       }))
     );
 

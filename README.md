@@ -13,6 +13,49 @@ AI가 코드를 대신 생성하지 않습니다. 대신 지금 쓴 코드가 **
 - **교육·최적화 진단** — 매 틱 반복, 짧은 주기의 `loop all players`, 반복문 안 `wait`, 전역/지역 변수, `rightclick` 같은 구버전 표기, 탭/스페이스 혼용을 실시간으로 표시합니다.
 - **코드 흐름 인스펙터** — 현재 파일의 트리거(`on`, `command`, `function`, `every`)와 선택한 트리거의 실행 단계(이벤트 → 조건 → 반복 → 실행/변수)를 한국어로 보여 주고, 변수 사용을 지역/전역으로 나눠 요약합니다. 항목을 누르면 해당 줄로 이동합니다.
 
+## 시작 화면 · 프로젝트 · 확장 (v2.1)
+
+### 시작 화면 (Launcher)
+앱을 열면 에디터로 바로 들어가지 않고 Adobe Premiere/Photoshop 스타일의 시작 화면이 먼저 나옵니다.
+
+- **새 프로젝트 만들기** — 이름 → 저장 위치 → Minecraft/Skript 버전 → 애드온 순서의 2단계 모달
+- **프로젝트 열기** — `.skripttool.json`이 있으면 저장된 버전·애드온 환경을 그대로 불러옵니다
+- **최근 프로젝트** — `localStorage`에 저장되며, 누르면 바로 열립니다 (경로가 사라졌으면 목록에서 자동 제거)
+- **예제 워크스페이스로 둘러보기** — 버전·애드온 진단을 바로 볼 수 있는 메모리 프로젝트
+- 에디터 상단바에서도 홈 / 새 프로젝트 / 확장으로 바로 이동할 수 있습니다.
+
+### `.skripttool.json`
+프로젝트 폴더의 설정 파일입니다. 파일 트리에는 표시되지 않습니다.
+
+```json
+{
+  "configVersion": 1,
+  "name": "서버 상점",
+  "minecraftVersion": "1.21.4",
+  "skriptVersion": "2.13.0",
+  "addons": ["skbee", "skript-gui"],
+  "createdAt": "2026-11-17T11:31:04.536Z",
+  "updatedAt": "2026-11-17T11:31:15.266Z"
+}
+```
+
+새 프로젝트는 `main.sk`와 이 파일을 함께 만들고, 버전이나 애드온이 바뀔 때마다 즉시 다시 저장합니다.
+설정이 없는 폴더를 열면 기본값으로 열고 `.skripttool.json`을 새로 저장합니다.
+
+### 확장(애드온) 관리 (Ctrl/Cmd+E)
+- 현재 프로젝트의 MC/Skript 버전과 호환되는 애드온만 추가할 수 있습니다. 비호환 애드온은 사유(지원 버전 범위)와 함께 흐리게 표시됩니다.
+- 추가/제거는 즉시 `.skripttool.json`에 반영되고, 진단·자동완성·Monaco 빠른 수정이 같은 순간에 갱신됩니다.
+
+### 문법 진단 색상
+| 표시 | 의미 | 예 |
+| --- | --- | --- |
+| 빨간줄 (Error) | 기본 문법 오류 | `:` 누락, 괄호/중괄호/따옴표/`%` 짝 불일치, `command`의 `trigger:` 누락, 블록 안 들여쓰기 혼용 |
+| 노란줄 (Warning) | 선택한 Skript 버전에서 폐기된 예전 문법 | `on rightclick`, `set action bar of ...`, `loop-entity`, `format slot` |
+| 노란줄 (Warning) | 프로젝트에 없는 애드온 전용 문법 | `nbt of`, `import ...`, `make gui slot`, `create a gui`, `open virtual`, `yaml value` … |
+| 파란 힌트 (Hint) | 학습·최적화 팁 | `every tick` 부하, 넓은 `loop`, 반복문 안 `wait`, 전역 변수 |
+
+애드온 문법 경고는 진단 바에서 **원클릭으로 그 애드온을 추가**하거나 Monaco 전구(빠른 수정)에서 바로 처리할 수 있습니다.
+
 ## 실행
 
 ```bash
@@ -44,8 +87,9 @@ npm run dist
 | --- | --- |
 | `Ctrl/Cmd + S` | 현재 탭 저장 |
 | `Ctrl/Cmd + Shift + S` | 다른 이름으로 저장 |
-| `Ctrl/Cmd + O` | 폴더 열기 |
-| `Ctrl/Cmd + N` | 새 `.sk` 파일 |
+| `Ctrl/Cmd + O` | 프로젝트 열기 |
+| `Ctrl/Cmd + N` | 새 `.sk` 파일 (시작 화면에서는 새 프로젝트) |
+| `Ctrl/Cmd + E` | 확장(애드온) 관리 |
 | `Ctrl/Cmd + B` | 사이드바 접기/펼치기 |
 | `Ctrl/Cmd + Shift + I` | 코드 흐름 패널 토글 |
 
@@ -53,22 +97,25 @@ npm run dist
 
 ```
 electron/
-  main.cts                 창 생성, 폴더/파일 IPC, 경로 검증
+  main.cts                 창 생성, 프로젝트 생성/열기·설정 파일·파일 IPC, 경로 검증
   preload.cts              contextBridge로 skriptApi 노출
 src/
+  launcher/                시작 화면과 새 프로젝트 모달
+  project/                 .skripttool.json 직렬화·복구, 최근 프로젝트, 기본 스크립트 템플릿
+  addons/                  확장(애드온) 관리 패널
   theme/                   CSS 변수 + Monaco 테마, 프리셋/커스텀, localStorage
   workspace/               폴더 트리, 탭, Electron/브라우저/인메모리 파일 어댑터
   diagnostics/             정적 진단 규칙과 접이식 진단 바
   inspector/               트리거 파싱 · 실행 흐름 · 변수 요약
   editor/                  Monaco 에디터 래퍼(마커/테마 연동)
   settings/                테마·에디터 설정 화면
-  environment/             MC / Skript / 애드온 환경 선택
-  catalog/                 버전·애드온 호환 데이터
-  skriptLanguage.ts        Skript 문법 하이라이트, 자동완성, hover
+  environment/             MC / Skript 버전 선택 팝오버
+  catalog/                 버전·애드온 카탈로그, 호환성 판정, 애드온/구버전 문법 패턴
+  skriptLanguage.ts        Skript 문법 하이라이트, 자동완성, hover, 확장 빠른 수정
 ```
 
 ## 브라우저 모드
 
-Electron 없이 `npm run preview`로 열면 예제 워크스페이스로 시작합니다.
-Chromium 계열 브라우저에서는 `폴더 열기`로 실제 폴더를 연결할 수 있고(File System Access API),
-지원하지 않는 브라우저에서는 메모리 워크스페이스에 파일을 만들고 저장할 수 있습니다(새로고침 시 초기화).
+Electron 없이 `npm run preview`로 열면 시작 화면이 나오고, `예제 워크스페이스로 둘러보기`로 바로 편집할 수 있습니다.
+Chromium 계열 브라우저에서는 `프로젝트 열기`로 실제 폴더를 연결할 수 있고(File System Access API),
+지원하지 않는 브라우저에서는 `새 프로젝트`가 메모리 프로젝트로 만들어집니다 — 이때 `.skripttool.json`은 저장되지 않습니다.

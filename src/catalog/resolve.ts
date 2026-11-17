@@ -1,111 +1,162 @@
-import { addonPackages } from "./addons";
+import { addonPackages, findAddonPackage } from "./addons";
+import { defaultMinecraftVersion, minecraftVersions } from "./minecraft";
 import { skriptReleases } from "./skript";
-import type { CompatibleAddon, EnvironmentConfig, InstalledAddon, MinecraftVersion, SkriptRelease } from "./types";
+import type {
+  AddonAvailability,
+  AddonPackage,
+  EnvironmentConfig,
+  MinecraftVersion,
+  SkriptVersion
+} from "./types";
 
-export function getCompatibleSkriptReleases(minecraftVersion: MinecraftVersion): SkriptRelease[] {
+export function getCompatibleSkriptReleases(minecraftVersion: MinecraftVersion) {
   return skriptReleases.filter((release) => release.minecraft.includes(minecraftVersion));
 }
 
-export function getRecommendedSkriptVersion(minecraftVersion: MinecraftVersion): string {
+export function getRecommendedSkriptVersion(minecraftVersion: MinecraftVersion): SkriptVersion {
   const compatible = getCompatibleSkriptReleases(minecraftVersion);
   return compatible.find((release) => release.recommended)?.version ?? compatible[0]?.version ?? skriptReleases[0].version;
 }
 
-function versionMatches(selected: string, allowed?: string[]): boolean {
-  if (!allowed || allowed.length === 0) {
-    return true;
+function describeVersionRange(versions: string[] | undefined): string {
+  if (!versions || versions.length === 0) {
+    return "";
   }
-  return allowed.includes(selected);
+  if (versions.length === 1) {
+    return versions[0];
+  }
+  return `${versions[versions.length - 1]} ~ ${versions[0]}`;
 }
 
-export function getCompatibleAddons(minecraftVersion: MinecraftVersion, skriptVersion: string): CompatibleAddon[] {
+/** 한 애드온이 이 MC/Skript 조합에서 쓸 수 있는지, 못 쓴다면 왜인지 돌려줍니다. */
+export function getAddonAvailability(
+  addon: AddonPackage,
+  minecraftVersion: MinecraftVersion,
+  skriptVersion: SkriptVersion
+): AddonAvailability {
+  const latestVersion = addon.versions[0] ?? "latest";
+
+  if (addon.compatibility === "all") {
+    return { addon, compatible: true, reasons: [], latestVersion };
+  }
+
+  const reasons: string[] = [];
+  const { minecraft, skript } = addon.compatibility;
+
+  if (minecraft && minecraft.length > 0 && !minecraft.includes(minecraftVersion)) {
+    reasons.push(`Minecraft ${minecraftVersion} 미지원 (지원: ${describeVersionRange(minecraft)})`);
+  }
+  if (skript && skript.length > 0 && !skript.includes(skriptVersion)) {
+    reasons.push(`Skript ${skriptVersion} 미지원 (지원: ${describeVersionRange(skript)})`);
+  }
+
+  return { addon, compatible: reasons.length === 0, reasons, latestVersion };
+}
+
+/** 호환되는 애드온을 먼저, 비호환은 뒤로 정렬해 전부 돌려줍니다. */
+export function listAddonAvailability(
+  minecraftVersion: MinecraftVersion,
+  skriptVersion: SkriptVersion
+): AddonAvailability[] {
   return addonPackages
-    .map((addon) => {
-      if (addon.compatibility === "all") {
-        return {
-          ...addon,
-          availableVersions: addon.versions,
-          alwaysAvailable: true
-        };
-      }
-
-      const mcOk = versionMatches(minecraftVersion, addon.compatibility.minecraft);
-      const skOk = versionMatches(skriptVersion, addon.compatibility.skript);
-
-      if (!mcOk || !skOk) {
-        return null;
-      }
-
-      return {
-        ...addon,
-        availableVersions: addon.versions,
-        alwaysAvailable: false
-      };
-    })
-    .filter((addon): addon is CompatibleAddon => addon !== null)
+    .map((addon) => getAddonAvailability(addon, minecraftVersion, skriptVersion))
     .sort((left, right) => {
-      if (left.alwaysAvailable !== right.alwaysAvailable) {
-        return left.alwaysAvailable ? 1 : -1;
+      if (left.compatible !== right.compatible) {
+        return left.compatible ? -1 : 1;
       }
-      return left.name.localeCompare(right.name);
+      return left.addon.name.localeCompare(right.addon.name);
     });
 }
 
-export function createDefaultEnvironment(): EnvironmentConfig {
-  const minecraftVersion = "1.21.4";
-  const skriptVersion = getRecommendedSkriptVersion(minecraftVersion);
-  const compatible = getCompatibleAddons(minecraftVersion, skriptVersion);
-  const prefer = ["skbee", "skript-reflect"];
+export function getCompatibleAddons(
+  minecraftVersion: MinecraftVersion,
+  skriptVersion: SkriptVersion
+): AddonPackage[] {
+  return listAddonAvailability(minecraftVersion, skriptVersion)
+    .filter((entry) => entry.compatible)
+    .map((entry) => entry.addon);
+}
 
-  const addons: InstalledAddon[] = prefer
-    .map((packageId) => compatible.find((addon) => addon.id === packageId))
-    .filter((addon): addon is CompatibleAddon => Boolean(addon))
-    .map((addon) => ({
-      id: `${addon.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      packageId: addon.id,
-      name: addon.name,
-      version: addon.availableVersions[0]
-    }));
+export function createDefaultEnvironment(
+  minecraftVersion: MinecraftVersion = defaultMinecraftVersion,
+  skriptVersion?: SkriptVersion
+): EnvironmentConfig {
+  const mc = minecraftVersions.includes(minecraftVersion) ? minecraftVersion : defaultMinecraftVersion;
+  const skript =
+    skriptVersion && getCompatibleSkriptReleases(mc).some((release) => release.version === skriptVersion)
+      ? skriptVersion
+      : getRecommendedSkriptVersion(mc);
 
-  return { minecraftVersion, skriptVersion, addons };
+  // 새 프로젝트는 애드온 없이 시작합니다. 필요한 애드온은 확장 패널에서 골라 추가합니다.
+  return { minecraftVersion: mc, skriptVersion: skript, addons: [] };
+}
+
+/** 버전이 바뀌었을 때 호환되지 않게 된 애드온을 정리합니다. */
+function pruneAddons(
+  addons: string[],
+  minecraftVersion: MinecraftVersion,
+  skriptVersion: SkriptVersion
+): { kept: string[]; dropped: AddonPackage[] } {
+  const kept: string[] = [];
+  const dropped: AddonPackage[] = [];
+
+  for (const id of addons) {
+    const addon = findAddonPackage(id);
+    if (!addon) {
+      continue;
+    }
+    const availability = getAddonAvailability(addon, minecraftVersion, skriptVersion);
+    if (availability.compatible) {
+      kept.push(id);
+    } else {
+      dropped.push(addon);
+    }
+  }
+
+  return { kept, dropped };
 }
 
 export function resolveEnvironmentOnMinecraftChange(
   current: EnvironmentConfig,
   minecraftVersion: MinecraftVersion
-): EnvironmentConfig {
+): { environment: EnvironmentConfig; dropped: AddonPackage[] } {
   const skriptVersion = getRecommendedSkriptVersion(minecraftVersion);
-  const compatible = getCompatibleAddons(minecraftVersion, skriptVersion);
-  const addons = current.addons
-    .map((installed) => {
-      const match = compatible.find((addon) => addon.id === installed.packageId);
-      if (!match) {
-        return null;
-      }
-      const version = match.availableVersions.includes(installed.version)
-        ? installed.version
-        : match.availableVersions[0];
-      return { ...installed, name: match.name, version };
-    })
-    .filter((addon): addon is InstalledAddon => addon !== null);
-
-  return { minecraftVersion, skriptVersion, addons };
+  const { kept, dropped } = pruneAddons(current.addons, minecraftVersion, skriptVersion);
+  return {
+    environment: { minecraftVersion, skriptVersion, addons: kept },
+    dropped
+  };
 }
 
-export function resolveEnvironmentOnSkriptChange(current: EnvironmentConfig, skriptVersion: string): EnvironmentConfig {
-  const compatible = getCompatibleAddons(current.minecraftVersion, skriptVersion);
-  const addons = current.addons
-    .map((installed) => {
-      const match = compatible.find((addon) => addon.id === installed.packageId);
-      if (!match) {
-        return null;
-      }
-      const version = match.availableVersions.includes(installed.version)
-        ? installed.version
-        : match.availableVersions[0];
-      return { ...installed, name: match.name, version };
-    })
-    .filter((addon): addon is InstalledAddon => addon !== null);
+export function resolveEnvironmentOnSkriptChange(
+  current: EnvironmentConfig,
+  skriptVersion: SkriptVersion
+): { environment: EnvironmentConfig; dropped: AddonPackage[] } {
+  const { kept, dropped } = pruneAddons(current.addons, current.minecraftVersion, skriptVersion);
+  return {
+    environment: { ...current, skriptVersion, addons: kept },
+    dropped
+  };
+}
 
-  return { ...current, skriptVersion, addons };
+/** 애드온 하나를 추가/제거한 새 환경을 만듭니다. */
+export function toggleAddon(
+  current: EnvironmentConfig,
+  addonId: string
+): { environment: EnvironmentConfig; added: boolean; blockedReason?: string } {
+  const addon = findAddonPackage(addonId);
+  if (!addon) {
+    return { environment: current, added: false, blockedReason: "카탈로그에 없는 애드온입니다." };
+  }
+
+  if (current.addons.includes(addonId)) {
+    return { environment: { ...current, addons: current.addons.filter((id) => id !== addonId) }, added: false };
+  }
+
+  const availability = getAddonAvailability(addon, current.minecraftVersion, current.skriptVersion);
+  if (!availability.compatible) {
+    return { environment: current, added: false, blockedReason: availability.reasons.join(" · ") };
+  }
+
+  return { environment: { ...current, addons: [...current.addons, addonId] }, added: true };
 }
